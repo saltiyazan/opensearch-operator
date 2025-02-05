@@ -15,7 +15,13 @@ LIBAPI = 0
 LIBPATCH = 1
 
 
+# Base name for TLS relations
 TLS_RELATION = "certificates"
+
+# Full relation names
+TLS_RELATION_ADMIN = f"{TLS_RELATION}-admin"
+TLS_RELATION_TRANSPORT = f"{TLS_RELATION}-transport"
+TLS_RELATION_HTTP = f"{TLS_RELATION}-http"
 
 
 class CertType(BaseStrEnum):

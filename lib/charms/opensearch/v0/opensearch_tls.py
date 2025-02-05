@@ -29,7 +29,12 @@ from charms.opensearch.v0.constants_charm import (
     PeerClusterRelationName,
     PeerRelationName,
 )
-from charms.opensearch.v0.constants_tls import TLS_RELATION, CertType
+from charms.opensearch.v0.constants_tls import (
+    TLS_RELATION_ADMIN,
+    TLS_RELATION_TRANSPORT,
+    TLS_RELATION_HTTP,
+    CertType
+)
 from charms.opensearch.v0.helper_charm import all_units, run_cmd
 from charms.opensearch.v0.helper_networking import get_host_public_ip
 from charms.opensearch.v0.helper_security import generate_password
@@ -40,13 +45,13 @@ from charms.opensearch.v0.opensearch_exceptions import (
     OpenSearchHttpError,
 )
 from charms.opensearch.v0.opensearch_internal_data import Scope
-from charms.tls_certificates_interface.v3.tls_certificates import (
+from charms.tls_certificates_interface.v4.tls_certificates import (
     CertificateAvailableEvent,
-    CertificateExpiringEvent,
-    CertificateInvalidatedEvent,
-    TLSCertificatesRequiresV3,
-    generate_csr,
-    generate_private_key,
+    TLSCertificatesRequiresV4,
+    CertificateRequestAttributes,
+    Certificate,
+    PrivateKey,
+    Mode,
 )
 from ops.charm import ActionEvent, RelationBrokenEvent, RelationCreatedEvent
 from ops.framework import Object
@@ -80,27 +85,75 @@ class OpenSearchTLS(Object):
         self.jdk_path = jdk_path
         self.certs_path = certs_path
         self.keytool = "opensearch.keytool"
-        self.certs = TLSCertificatesRequiresV3(charm, TLS_RELATION, expiry_notification_time=23)
+
+        # Create separate TLS interfaces for different certificate types
+        self.admin_certs = TLSCertificatesRequiresV4(
+            charm=charm,
+            relationship_name=TLS_RELATION_ADMIN,
+            certificate_requests=[
+                CertificateRequestAttributes(
+                    common_name="admin",
+                    organization=self.charm.opensearch_peer_cm.deployment_desc().config.cluster_name,
+                ),
+            ],
+            mode=Mode.APP,  # Admin certs are shared across units
+        )
+
+        # Transport certificates for node-to-node communication
+        self.transport_certs = TLSCertificatesRequiresV4(
+            charm=charm,
+            relationship_name=TLS_RELATION_TRANSPORT,
+            certificate_requests=[
+                self._get_unit_cert_request(CertType.UNIT_TRANSPORT),
+            ],
+            mode=Mode.UNIT,  # Each unit needs its own transport cert
+        )
+
+        # HTTP certificates for REST API
+        self.http_certs = TLSCertificatesRequiresV4(
+            charm=charm,
+            relationship_name=TLS_RELATION_HTTP,
+            certificate_requests=[
+                self._get_unit_cert_request(CertType.UNIT_HTTP),
+            ],
+            mode=Mode.UNIT,  # Each unit needs its own HTTP cert
+        )
+
+        # Set up observers for each certificate type
+        for cert_interface in [self.admin_certs, self.transport_certs, self.http_certs]:
+            self.framework.observe(
+                cert_interface.on.certificate_available,
+                self._on_certificate_available
+            )
+
+        # Observe relation events for all TLS relations
+        for relation_name in [TLS_RELATION_ADMIN, TLS_RELATION_TRANSPORT, TLS_RELATION_HTTP]:
+            self.framework.observe(
+                self.charm.on[relation_name].relation_created,
+                self._on_tls_relation_created
+            )
+            self.framework.observe(
+                self.charm.on[relation_name].relation_broken,
+                self._on_tls_relation_broken
+            )
 
         self.framework.observe(
             self.charm.on.set_tls_private_key_action, self._on_set_tls_private_key
         )
 
-        self.framework.observe(
-            self.charm.on[TLS_RELATION].relation_created, self._on_tls_relation_created
-        )
-        self.framework.observe(
-            self.charm.on[TLS_RELATION].relation_broken, self._on_tls_relation_broken
-        )
-
-        self.framework.observe(self.certs.on.certificate_available, self._on_certificate_available)
-        self.framework.observe(self.certs.on.certificate_expiring, self._on_certificate_expiring)
-        self.framework.observe(
-            self.certs.on.certificate_invalidated, self._on_certificate_invalidated
+    def _get_unit_cert_request(self, cert_type: CertType) -> CertificateRequestAttributes:
+        """Create certificate request attributes for a unit certificate."""
+        sans = self._get_sans(cert_type)
+        return CertificateRequestAttributes(
+            common_name=self.charm.unit_ip,
+            organization=self.charm.opensearch_peer_cm.deployment_desc().config.cluster_name,
+            sans_dns=frozenset(sans.get("sans_dns", [])),
+            sans_ip=frozenset(sans.get("sans_ip", [])),
+            sans_oid=frozenset(sans["sans_oid"]),
         )
 
     def _on_set_tls_private_key(self, event: ActionEvent) -> None:
-        """Set the TLS private key, which will be used for requesting the certificate."""
+        """Set the TLS private key for certificate requests."""
         if self.charm.upgrade_in_progress:
             event.fail("Setting private key not supported while upgrade in-progress")
             return
@@ -128,30 +181,18 @@ class OpenSearchTLS(Object):
         """Request the generation of a new admin certificate."""
         if not self.charm.unit.is_leader():
             return
-        admin_secrets = self.charm.secrets.get_object(Scope.APP, CertType.APP_ADMIN.val) or {}
-        self._request_certificate(
-            Scope.APP,
-            CertType.APP_ADMIN,
-            admin_secrets.get("key"),
-            admin_secrets.get("key-password"),
-        )
+        self.admin_certs.regenerate_private_key()
 
     def request_new_unit_certificates(self) -> None:
-        """Requests a new certificate with the given scope and type from the tls operator."""
+        """Request new certificates for this unit."""
         self.charm.peers_data.delete(Scope.UNIT, "tls_configured")
-
-        for cert_type in [CertType.UNIT_HTTP, CertType.UNIT_TRANSPORT]:
-            csr = self.charm.secrets.get_object(Scope.UNIT, cert_type.val)["csr"].encode("utf-8")
-            self.certs.request_certificate_revocation(csr)
-
-        # doing this sequentially (revoking -> requesting new ones), to avoid triggering
-        # the "certificate available" callback with old certificates
-        for cert_type in [CertType.UNIT_HTTP, CertType.UNIT_TRANSPORT]:
-            secrets = self.charm.secrets.get_object(Scope.UNIT, cert_type.val)
-            self._request_certificate_renewal(Scope.UNIT, cert_type, secrets)
+        
+        # Regenerate both transport and HTTP certificates
+        self.transport_certs.regenerate_private_key()
+        self.http_certs.regenerate_private_key()
 
     def _on_tls_relation_created(self, event: RelationCreatedEvent) -> None:
-        """Request certificate when TLS relation created."""
+        """Handle TLS relation creation."""
         if self.charm.upgrade_in_progress:
             logger.warning(
                 "Modifying relations during an upgrade is not supported. The charm may be in a broken, unrecoverable state"
@@ -161,6 +202,7 @@ class OpenSearchTLS(Object):
         if not (deployment_desc := self.charm.opensearch_peer_cm.deployment_desc()):
             event.defer()
             return
+
         admin_cert = self.charm.secrets.get_object(Scope.APP, CertType.APP_ADMIN.val) or {}
         if self.charm.unit.is_leader() and deployment_desc.typ == DeploymentType.MAIN_ORCHESTRATOR:
             # create passwords for both ca trust_store/admin key_store
@@ -168,8 +210,6 @@ class OpenSearchTLS(Object):
             self._create_keystore_pwd_if_not_exists(
                 Scope.APP, CertType.APP_ADMIN, CertType.APP_ADMIN.val
             )
-
-            self._request_certificate(Scope.APP, CertType.APP_ADMIN)
         elif not admin_cert.get("truststore-password"):
             logger.debug("Truststore-password from main-orchestrator not available yet.")
             event.defer()
@@ -183,9 +223,6 @@ class OpenSearchTLS(Object):
             Scope.UNIT, CertType.UNIT_HTTP, CertType.UNIT_HTTP.val
         )
 
-        self._request_certificate(Scope.UNIT, CertType.UNIT_TRANSPORT)
-        self._request_certificate(Scope.UNIT, CertType.UNIT_HTTP)
-
     def _on_tls_relation_broken(self, event: RelationBrokenEvent) -> None:
         """Notify the charm that the relation is broken."""
         if self.charm.upgrade_in_progress:
@@ -194,7 +231,7 @@ class OpenSearchTLS(Object):
             )
         self.charm.on_tls_relation_broken(event)
 
-    def _on_certificate_available(self, event: CertificateAvailableEvent) -> None:  # noqa: C901
+    def _on_certificate_available(self, event: CertificateAvailableEvent) -> None:
         """Enable TLS when TLS certificate available.
 
         CertificateAvailableEvents fire whenever a new certificate is created by the TLS charm.
@@ -220,7 +257,7 @@ class OpenSearchTLS(Object):
             "ca-cert": current_secret_obj.get("ca-cert"),
         }
 
-        if secret != {"chain": ca_chain, "cert": event.certificate, "ca-cert": event.ca}:
+        if secret != {"chain": ca_chain, "cert": str(event.certificate), "ca-cert": str(event.ca)}:
             # Juju is not able to check if secrets' content changed between revisions
             # this IF is intended to reduce a storm of secret-removed/-changed events
             # for the same content
@@ -229,14 +266,14 @@ class OpenSearchTLS(Object):
                 cert_type.val,
                 {
                     "chain": ca_chain,
-                    "cert": event.certificate,
-                    "ca-cert": event.ca,
+                    "cert": str(event.certificate),
+                    "ca-cert": str(event.ca),
                 },
                 merge=True,
             )
 
         current_stored_ca = self.read_stored_ca()
-        if current_stored_ca != event.ca:
+        if current_stored_ca != str(event.ca):
             if not self.store_new_ca(self.charm.secrets.get_object(scope, cert_type.val)):
                 logger.debug("Could not store new CA certificate.")
                 event.defer()
@@ -288,7 +325,7 @@ class OpenSearchTLS(Object):
             self.charm.peer_cluster_provider.refresh_relation_data(event, can_defer=False)
 
         renewal = self.read_stored_ca(alias="old-ca") is not None or (
-            old_cert is not None and old_cert != event.certificate
+            old_cert is not None and old_cert != str(event.certificate)
         )
 
         try:
@@ -297,25 +334,6 @@ class OpenSearchTLS(Object):
             logger.exception(e)
             event.defer()
 
-    def _on_certificate_expiring(
-        self, event: Union[CertificateExpiringEvent, CertificateInvalidatedEvent]
-    ) -> None:
-        """Request the new certificate when old certificate is expiring."""
-        self.charm.peers_data.delete(Scope.UNIT, "tls_configured")
-        try:
-            scope, cert_type, secrets = self._find_secret(event.certificate, "cert")
-            logger.debug(f"{scope.val}.{cert_type.val} TLS certificate expiring.")
-        except TypeError:
-            logger.debug("Unknown certificate expiring.")
-            return
-
-        self._request_certificate_renewal(scope, cert_type, secrets)
-
-    def _on_certificate_invalidated(self, event: CertificateInvalidatedEvent) -> None:
-        """Handle a cert that was revoked or has expired"""
-        logger.debug(f"Received certificate invalidation. Reason: {event.reason}")
-        self._on_certificate_expiring(event)
-
     def _request_certificate(
         self,
         scope: Scope,
@@ -323,68 +341,52 @@ class OpenSearchTLS(Object):
         key: Optional[str] = None,
         password: Optional[str] = None,
     ):
-        """Request certificate and store the key/key-password/csr in the scope's data bag."""
+        """Request certificate and store the key/key-password in the scope's data bag."""
         if key is None:
-            key = generate_private_key()
-        else:
-            key = self._parse_tls_file(key)
+            # Let the library handle key generation
+            if cert_type == CertType.APP_ADMIN:
+                self.admin_certs.regenerate_private_key()
+            elif cert_type == CertType.UNIT_TRANSPORT:
+                self.transport_certs.regenerate_private_key()
+            elif cert_type == CertType.UNIT_HTTP:
+                self.http_certs.regenerate_private_key()
+            return
 
-        if password is not None:
-            password = password.encode("utf-8")
+        # If key is provided, use it
+        key_data = self._parse_tls_file(key)
+        private_key = PrivateKey(key_data.decode())
 
-        subject = self._get_subject(cert_type)
-        organization = self.charm.opensearch_peer_cm.deployment_desc().config.cluster_name
-        csr = generate_csr(
-            add_unique_id_to_subject_name=False,
-            private_key=key,
-            private_key_password=password,
-            subject=subject,
-            organization=organization,
-            **self._get_sans(cert_type),
-        )
+        if cert_type == CertType.APP_ADMIN:
+            self.admin_certs.regenerate_private_key(private_key=private_key)
+        elif cert_type == CertType.UNIT_TRANSPORT:
+            self.transport_certs.regenerate_private_key(private_key=private_key)
+        elif cert_type == CertType.UNIT_HTTP:
+            self.http_certs.regenerate_private_key(private_key=private_key)
 
+        # Store the key in secrets
         self.charm.secrets.put_object(
             scope=scope,
             key=cert_type.val,
             value={
-                "key": key.decode("utf-8"),
+                "key": key_data.decode("utf-8"),
                 "key-password": password,
-                "csr": csr.decode("utf-8"),
-                "subject": f"/O={self.charm.opensearch_peer_cm.deployment_desc().config.cluster_name}/CN={subject}",
             },
             merge=True,
         )
 
-        if self.charm.model.get_relation(TLS_RELATION):
-            self.certs.request_certificate_creation(certificate_signing_request=csr)
-
     def _request_certificate_renewal(
         self, scope: Scope, cert_type: CertType, secrets: Dict[str, str]
     ):
-        """Request new certificate and store the key/key-password/csr in the scope's data bag."""
-        key = secrets["key"].encode("utf-8")
-        key_password = secrets.get("key-password", None)
-        old_csr = secrets["csr"].encode("utf-8")
+        """Request certificate renewal using the existing key."""
+        key_data = secrets["key"].encode("utf-8")
+        private_key = PrivateKey(key_data.decode())
 
-        subject = self._get_subject(cert_type)
-        organization = self.charm.opensearch_peer_cm.deployment_desc().config.cluster_name
-        new_csr = generate_csr(
-            add_unique_id_to_subject_name=False,
-            private_key=key,
-            private_key_password=(None if key_password is None else key_password.encode("utf-8")),
-            subject=subject,
-            organization=organization,
-            **self._get_sans(cert_type),
-        )
-
-        self.charm.secrets.put_object(
-            scope, cert_type.val, {"csr": new_csr.decode("utf-8"), "subject": subject}, merge=True
-        )
-
-        self.certs.request_certificate_renewal(
-            old_certificate_signing_request=old_csr,
-            new_certificate_signing_request=new_csr,
-        )
+        if cert_type == CertType.APP_ADMIN:
+            self.admin_certs.regenerate_private_key(private_key=private_key)
+        elif cert_type == CertType.UNIT_TRANSPORT:
+            self.transport_certs.regenerate_private_key(private_key=private_key)
+        elif cert_type == CertType.UNIT_HTTP:
+            self.http_certs.regenerate_private_key(private_key=private_key)
 
     def _get_sans(self, cert_type: CertType) -> Dict[str, List[str]]:
         """Create a list of OID/IP/DNS names for an OpenSearch unit.

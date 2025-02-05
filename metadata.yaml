@@ -36,8 +36,20 @@ provides:
     scope: container
 
 requires:
-  certificates:
+  certificates-admin:
     interface: tls-certificates
+    description: |
+      TLS relation for admin certificates used for cluster management.
+    limit: 1
+  certificates-transport:
+    interface: tls-certificates
+    description: |
+      TLS relation for transport certificates used for node-to-node communication.
+    limit: 1
+  certificates-http:
+    interface: tls-certificates
+    description: |
+      TLS relation for HTTP certificates used for REST API.
     limit: 1
   peer-cluster:
     interface: peer_cluster
