@@ -34,7 +34,6 @@ from charms.opensearch.v0.constants_charm import (
     ServiceIsStopping,
     ServiceStartError,
     ServiceStopped,
-    TLSCaRotation,
     TLSNewCertsRequested,
     TLSNotFullyConfigured,
     TLSRelationBrokenError,
@@ -93,7 +92,7 @@ from charms.opensearch.v0.opensearch_users import (
     OpenSearchUserManager,
     OpenSearchUserMgmtError,
 )
-from charms.tls_certificates_interface.v3.tls_certificates import (
+from charms.tls_certificates_interface.v4.tls_certificates import (
     CertificateAvailableEvent,
 )
 from ops.charm import (
@@ -819,20 +818,24 @@ class OpenSearchBaseCharm(CharmBase, abc.ABC):
             }
         )
 
-    def on_tls_ca_rotation(self):
-        """Called when adding new CA to the trust store."""
-        self.status.set(MaintenanceStatus(TLSCaRotation))
-        self._restart_opensearch_event.emit()
+    def on_new_ca_added(self):
+        """Called when a new CA is added to the truststore."""
+        try:
+            self.tls.reload_tls_certificates()
+        except OpenSearchHttpError:
+            logger.error("Could not reload certificates via API after adding new CA, will restart.")
+            self._restart_opensearch_event.emit()
 
     def on_tls_conf_set(
         self, event: CertificateAvailableEvent, scope: Scope, cert_type: CertType, renewal: bool
     ):
         """Called after certificate ready and stored on the corresponding scope databag.
-
         - Store the cert on the file system, on all nodes for APP certificates
         - Update the corresponding yaml conf files
         - Run the security admin script
         """
+        # Update this method to remove CA rotation references
+        # renewal now only means certificate change, not CA rotation
         if scope == Scope.UNIT:
             admin_secrets = self.secrets.get_object(Scope.APP, CertType.APP_ADMIN.val) or {}
             if not (truststore_pwd := admin_secrets.get("truststore-password")):
@@ -949,7 +952,7 @@ class OpenSearchBaseCharm(CharmBase, abc.ABC):
 
         # we check if we need to create the admin user
         if not self.is_admin_user_configured():
-            self._put_or_update_internal_user_leader(AdminUser)
+            self._put_or_update_internal_user_leader(AdminUser, update=False)
 
         # we check if we need to generate the admin certificate if missing
         if not self.tls.all_tls_resources_stored():
@@ -1203,7 +1206,6 @@ class OpenSearchBaseCharm(CharmBase, abc.ABC):
         # update the peer relation data for TLS CA rotation routine
         self.tls.reset_ca_rotation_state()
         if self.is_tls_full_configured_in_cluster():
-            self.status.clear(TLSCaRotation)
             self.status.clear(TLSNotFullyConfigured)
 
         # request new certificates after rotating the CA

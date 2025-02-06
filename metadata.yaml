@@ -36,7 +36,13 @@ provides:
     scope: container
 
 requires:
-  certificates:
+  admin-certificates:
+    interface: tls-certificates
+    limit: 1
+  peer-certificates:
+    interface: tls-certificates
+    limit: 1
+  client-certificates:
     interface: tls-certificates
     limit: 1
   peer-cluster:
