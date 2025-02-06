@@ -20,6 +20,7 @@ TLS_RELATION_PEER = "peer-certificates"
 TLS_RELATION_CLIENT = "client-certificates"
 TLS_RELATION_ADMIN = "admin-certificates"
 
+
 class CertType(BaseStrEnum):
     """Certificate types."""
 

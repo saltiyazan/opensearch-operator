@@ -823,13 +823,16 @@ class OpenSearchBaseCharm(CharmBase, abc.ABC):
         try:
             self.tls.reload_tls_certificates()
         except OpenSearchHttpError:
-            logger.error("Could not reload certificates via API after adding new CA, will restart.")
+            logger.error(
+                "Could not reload certificates via API after adding new CA, will restart."
+            )
             self._restart_opensearch_event.emit()
 
     def on_tls_conf_set(
         self, event: CertificateAvailableEvent, scope: Scope, cert_type: CertType, renewal: bool
     ):
         """Called after certificate ready and stored on the corresponding scope databag.
+
         - Store the cert on the file system, on all nodes for APP certificates
         - Update the corresponding yaml conf files
         - Run the security admin script
@@ -952,7 +955,7 @@ class OpenSearchBaseCharm(CharmBase, abc.ABC):
 
         # we check if we need to create the admin user
         if not self.is_admin_user_configured():
-            self._put_or_update_internal_user_leader(AdminUser, update=False)
+            self._put_or_update_internal_user_leader(AdminUser)
 
         # we check if we need to generate the admin certificate if missing
         if not self.tls.all_tls_resources_stored():

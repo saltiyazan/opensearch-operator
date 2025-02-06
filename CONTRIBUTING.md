@@ -5,10 +5,8 @@
 This document explains the processes and practices recommended for contributing enhancements to
 this operator.
 
-<!-- TEMPLATE-TODO: Update the URL for issue creation -->
-
 - Generally, before developing enhancements to this charm, you should consider [opening an issue
-  ](https://github.com/canonical/operator-opensearch/issues) explaining your use case.
+  ](https://github.com/canonical/opensearch-operator/issues) explaining your use case.
 - If you would like to chat with us about your use-cases or proposed implementation, you can reach
   us at [Canonical Mattermost public channel](https://chat.charmhub.io/charmhub/channels/charm-dev)
   or [Discourse](https://discourse.charmhub.io/).
@@ -21,7 +19,6 @@ this operator.
 - Please help us out in ensuring easy to review branches by rebasing your pull request branch onto
   the `main` branch. This also avoids merge commits and creates a linear Git commit history.
 
-
 ## Build charm
 
 Build the charm in this git repository using tox.
@@ -30,8 +27,9 @@ There are two alternatives to build the charm: using the charm cache or not.
 Cache will speed the build by downloading all dependencies from charmcraftcache-hub.
 
 First, ensure you have the right dependencies:
-* charmcraft v2.5.4+
-* charmcraftcache
+
+- charmcraft v2.5.4+
+- charmcraftcache
 
 By running the following commands:
 
@@ -113,6 +111,7 @@ SECRETS_FROM_GITHUB=$(cat <path-to>/credentials.json) tox -e integration -- test
 ```
 
 Where, for AWS only, `credentials.json` should look like:
+
 ```shell
 $ cat credentials.json
 { "AWS_ACCESS_KEY": ..., "AWS_SECRET_KEY": ...}
@@ -122,6 +121,7 @@ $ cat credentials.json
 
 OpenSearch has a set of system requirements to correctly function, you can find the list [here](https://opensearch.org/docs/latest/install-and-configure/install-opensearch/index/).
 Some of those settings must be set using cloudinit-userdata on the model, while others must be set on the host machine:
+
 ```bash
 cat <<EOF > cloudinit-userdata.yaml
 cloudinit-userdata: |
@@ -139,6 +139,7 @@ sudo sysctl -p
 ```
 
 Then create a new model and set the previously generated file in it.
+
 ```bash
 # Create a model
 juju add-model dev
@@ -154,6 +155,7 @@ juju model-config update-status-hook-interval=1m
 ```
 
 You can then deploy the charm with a TLS relation.
+
 ```bash
 # Deploy the self-signed-certificates operator
 juju deploy self-signed-certificates --channel=latest/stable --show-log --verbose
@@ -164,7 +166,7 @@ juju config \
     ca-common-name="CN_CA" \
     certificate-validity=365 \
     root-ca-validity=365
-    
+
 # Deploy the opensearch charm
 juju deploy -n 1 ./opensearch_ubuntu-22.04-amd64.charm --series jammy --show-log --verbose
 
@@ -174,6 +176,6 @@ juju integrate self-signed-certificates opensearch
 
 **Note:** The TLS settings shown here are for self-signed-certificates, which are not recommended for production clusters. The TLS Certificates Operator offers a variety of configurations. Read more on the self-signed-certificates Operator [here](https://charmhub.io/self-signed-certificates).
 
-
 ## Canonical Contributor Agreement
+
 Canonical welcomes contributions to the Charmed Template Operator. Please check out our [contributor agreement](https://ubuntu.com/legal/contributors) if you're interested in contributing to the solution.
