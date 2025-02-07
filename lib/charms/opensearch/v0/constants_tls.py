@@ -15,7 +15,6 @@ LIBAPI = 0
 LIBPATCH = 1
 
 
-TLS_RELATION = "certificates"
 TLS_RELATION_PEER = "peer-certificates"
 TLS_RELATION_CLIENT = "client-certificates"
 TLS_RELATION_ADMIN = "admin-certificates"

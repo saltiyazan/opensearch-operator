@@ -86,20 +86,17 @@ class OpenSearchTLS(Object):
             charm,
             TLS_RELATION_PEER,
             certificate_requests=self._get_unit_certificate_requests(CertType.UNIT_TRANSPORT),
-            private_key=self._get_private_key(CertType.UNIT_TRANSPORT),
         )
         self.certs_client = TLSCertificatesRequiresV4(
             charm,
             TLS_RELATION_CLIENT,
             certificate_requests=self._get_unit_certificate_requests(CertType.UNIT_HTTP),
-            private_key=self._get_private_key(CertType.UNIT_HTTP),
         )
         self.certs_admin = TLSCertificatesRequiresV4(
             charm,
             TLS_RELATION_ADMIN,
             certificate_requests=self._get_admin_certificate_requests(),
             mode=Mode.APP,
-            private_key=self._get_private_key(CertType.APP_ADMIN),
         )
 
         self.framework.observe(
@@ -151,15 +148,6 @@ class OpenSearchTLS(Object):
             )
         ]
 
-    def _get_private_key(self, cert_type: CertType) -> Optional[PrivateKey]:
-        """Get the private key from secrets for the given cert type if it exists."""
-        scope = Scope.APP if cert_type == CertType.APP_ADMIN else Scope.UNIT
-        secrets = self.charm.secrets.get_object(scope, cert_type.val)
-
-        if secrets and (key := secrets.get("key")):
-            return PrivateKey.from_string(key)
-        return None
-
     def _on_set_tls_private_key(self, event: ActionEvent) -> None:
         """Set the TLS private key, which will be used for requesting the certificate."""
         if self.charm.upgrade_in_progress:
@@ -178,25 +166,12 @@ class OpenSearchTLS(Object):
                 "Only the juju leader unit of the main orchestrator can set private key for the admin certificates."
             )
             return
-
-        key = event.params.get("key")
-        if key:
-            self.charm.secrets.put_object(
-                scope=scope, key=cert_type.val, value={"key": key}, merge=True
-            )
-            if cert_type == CertType.APP_ADMIN:
-                self.certs_admin.set_private_key(PrivateKey.from_string(key))
-            elif cert_type == CertType.UNIT_TRANSPORT:
-                self.certs_peer.set_private_key(PrivateKey.from_string(key))
-            elif cert_type == CertType.UNIT_HTTP:
-                self.certs_client.set_private_key(PrivateKey.from_string(key))
-        else:
-            if cert_type == CertType.APP_ADMIN:
-                self.certs_admin.regenerate_private_key()
-            elif cert_type == CertType.UNIT_TRANSPORT:
-                self.certs_peer.regenerate_private_key()
-            elif cert_type == CertType.UNIT_HTTP:
-                self.certs_client.regenerate_private_key()
+        if cert_type == CertType.APP_ADMIN:
+            self.certs_admin.regenerate_private_key()
+        elif cert_type == CertType.UNIT_TRANSPORT:
+            self.certs_peer.regenerate_private_key()
+        elif cert_type == CertType.UNIT_HTTP:
+            self.certs_client.regenerate_private_key()
 
     def _on_tls_relation_created(self, event: RelationCreatedEvent) -> None:
         """Request certificate when TLS relation created."""

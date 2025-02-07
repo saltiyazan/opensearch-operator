@@ -1054,7 +1054,8 @@ class TLSCertificatesRequiresV4(Object):
             logger.debug("TLS relation not created yet.")
             return
         self._ensure_private_key()
-        self._refresh_certificate_requests()
+        self._cleanup_certificate_requests()
+        self._send_certificate_requests()
         self._find_available_certificates()
 
     def _mode_is_valid(self, mode: Mode) -> bool:
@@ -1170,21 +1171,6 @@ class TLSCertificatesRequiresV4(Object):
             return
         self._generate_private_key()
 
-    def set_private_key(self, private_key: PrivateKey) -> None:
-        """Set the private key to use for the certificates.
-
-        If provided, it will be used instead of generating one by the library.
-        If the key is not valid an exception will be raised.
-        Using this function is discouraged,
-            having to pass around private keys manually can be a security concern.
-        Allowing the library to generate and manage the key is the more secure approach.
-        """
-        self._private_key = private_key
-        if not private_key.is_valid():
-            raise TLSCertificatesError("Invalid private key")
-        self._remove_private_key_secret()
-        self._refresh_certificate_requests()
-
     def regenerate_private_key(self) -> None:
         """Regenerate the private key.
 
@@ -1203,7 +1189,8 @@ class TLSCertificatesRequiresV4(Object):
             logger.warning("No private key to regenerate")
             return
         self._generate_private_key()
-        self._refresh_certificate_requests()
+        self._cleanup_certificate_requests()
+        self._send_certificate_requests()
 
     def _generate_private_key(self) -> None:
         """Generate a new private key and store it in a secret.
@@ -1481,11 +1468,6 @@ class TLSCertificatesRequiresV4(Object):
                         chain=provider_certificate.chain,
                     )
 
-    def _refresh_certificate_requests(self):
-        """Clean up existing certificate requests and send new ones."""
-        self._cleanup_certificate_requests()
-        self._send_certificate_requests()
-
     def _cleanup_certificate_requests(self):
         """Clean up certificate requests.
 
@@ -1526,9 +1508,9 @@ class TLSCertificatesRequiresV4(Object):
 
     def _get_private_key_secret_label(self) -> str:
         if self.mode == Mode.UNIT:
-            return f"{LIBID}-private-key-{self._get_unit_number()}-{self.relationship_name}"
+            return f"{LIBID}-private-key-{self._get_unit_number()}"
         elif self.mode == Mode.APP:
-            return f"{LIBID}-private-key-{self.relationship_name}"
+            return f"{LIBID}-private-key"
         else:
             raise TLSCertificatesError("Invalid mode. Must be Mode.UNIT or Mode.APP.")
 
