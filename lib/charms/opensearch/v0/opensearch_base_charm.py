@@ -828,15 +828,8 @@ class OpenSearchBaseCharm(CharmBase, abc.ABC):
             )
             self._restart_opensearch_event.emit()
 
-    def on_tls_conf_set(
-        self, event: CertificateAvailableEvent, scope: Scope, cert_type: CertType, renewal: bool
-    ):
-        """Called after certificate ready and stored on the corresponding scope databag.
-
-        - Store the cert on the file system, on all nodes for APP certificates
-        - Update the corresponding yaml conf files
-        - Run the security admin script
-        """
+    def on_tls_conf_set(self, event: CertificateAvailableEvent, scope: Scope, cert_type: CertType, renewal: bool):
+        """Called after certificate ready and stored on the corresponding scope databag."""
         if scope == Scope.UNIT:
             admin_secrets = self.secrets.get_object(Scope.APP, CertType.APP_ADMIN.val) or {}
             if not (truststore_pwd := admin_secrets.get("truststore-password")):
@@ -869,16 +862,6 @@ class OpenSearchBaseCharm(CharmBase, abc.ABC):
                     self._restart_opensearch_event.emit()
                 else:
                     self.status.clear(TLSNotFullyConfigured)
-                    self.tls.reset_ca_rotation_state()
-                    # if all certs are stored and CA rotation is complete in the cluster
-                    # we delete the old ca and update the chain to only include the new one
-                    if (
-                        self.tls.read_stored_ca("old-ca")
-                        and self.tls.ca_and_certs_rotation_complete_in_cluster()
-                    ):
-                        logger.info("on_tls_conf_set: Detected CA rotation complete in cluster")
-                        self.tls.on_ca_certs_rotation_complete()
-
             else:
                 event.defer()
                 return
