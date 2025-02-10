@@ -828,7 +828,9 @@ class OpenSearchBaseCharm(CharmBase, abc.ABC):
             )
             self._restart_opensearch_event.emit()
 
-    def on_tls_conf_set(self, event: CertificateAvailableEvent, scope: Scope, cert_type: CertType, renewal: bool):
+    def on_tls_conf_set(
+        self, event: CertificateAvailableEvent, scope: Scope, cert_type: CertType, renewal: bool
+    ):
         """Called after certificate ready and stored on the corresponding scope databag."""
         if scope == Scope.UNIT:
             admin_secrets = self.secrets.get_object(Scope.APP, CertType.APP_ADMIN.val) or {}

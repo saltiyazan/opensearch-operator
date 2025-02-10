@@ -26,7 +26,6 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from charms.opensearch.v0.constants_charm import PeerRelationName
 from charms.opensearch.v0.constants_tls import (
-    TLS_RELATION,
     TLS_RELATION_ADMIN,
     TLS_RELATION_CLIENT,
     TLS_RELATION_PEER,
@@ -46,7 +45,6 @@ from charms.tls_certificates_interface.v4.tls_certificates import (
     CertificateAvailableEvent,
     CertificateRequestAttributes,
     Mode,
-    PrivateKey,
     TLSCertificatesRequiresV4,
 )
 from ops.charm import ActionEvent, RelationBrokenEvent, RelationCreatedEvent
@@ -103,12 +101,6 @@ class OpenSearchTLS(Object):
             self.charm.on.set_tls_private_key_action, self._on_set_tls_private_key
         )
 
-        self.framework.observe(
-            self.charm.on[TLS_RELATION].relation_created, self._on_tls_relation_created
-        )
-        self.framework.observe(
-            self.charm.on[TLS_RELATION].relation_broken, self._on_tls_relation_broken
-        )
         for cert_interface in [self.certs_admin, self.certs_peer, self.certs_client]:
             self.framework.observe(
                 cert_interface.on.certificate_available, self._on_certificate_available
@@ -319,10 +311,9 @@ class OpenSearchTLS(Object):
         if self.charm.unit.is_leader() and self.charm.opensearch_peer_cm.is_provider(typ="main"):
             self.charm.peer_cluster_provider.refresh_relation_data(event, can_defer=False)
 
-        renewal = (
-            current_secret_obj.get("cert") is not None
-            and current_secret_obj.get("cert") != str(event.certificate)
-        )
+        renewal = current_secret_obj.get("cert") is not None and current_secret_obj.get(
+            "cert"
+        ) != str(event.certificate)
 
         try:
             self.charm.on_tls_conf_set(event, scope, cert_type, renewal)
@@ -511,7 +502,7 @@ class OpenSearchTLS(Object):
                     )
                     run_cmd(f"sudo chmod +r {store_path}")
                     logger.info(f"Added CA {alias} to truststore")
-                    
+
                     self.charm.on_new_ca_added()
                     return True
 
