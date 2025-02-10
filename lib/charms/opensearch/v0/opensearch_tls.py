@@ -250,7 +250,6 @@ class OpenSearchTLS(Object):
 
         logger.debug(f"{scope.val}.{cert_type.val} TLS certificate available.")
 
-        # Store CSR in secrets for future reference
         self.charm.secrets.put_object(
             scope, cert_type.val, {"csr": str(event.certificate_signing_request)}, merge=True
         )
@@ -488,7 +487,6 @@ class OpenSearchTLS(Object):
             ca_tmp_file.flush()
 
             try:
-                # Get CA fingerprint for unique alias
                 fingerprint = (
                     run_cmd(f"openssl x509 -noout -fingerprint -sha256 -in {ca_tmp_file.name}")
                     .out.split("=")[1]
@@ -514,7 +512,6 @@ class OpenSearchTLS(Object):
                     run_cmd(f"sudo chmod +r {store_path}")
                     logger.info(f"Added CA {alias} to truststore")
                     
-                    # CA was successfully added, trigger additional processes
                     self.charm.on_new_ca_added()
                     return True
 
