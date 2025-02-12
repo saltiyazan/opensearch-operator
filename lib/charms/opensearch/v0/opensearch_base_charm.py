@@ -369,7 +369,7 @@ class OpenSearchBaseCharm(CharmBase, abc.ABC):
             event.defer()
             return
 
-        if not self.is_admin_user_configured() or not self.tls.is_fully_configured():
+        if not self.is_admin_user_configured():
             if not self.model.get_relation("certificates"):
                 status = BlockedStatus(TLSRelationMissing)
             else:
@@ -802,10 +802,6 @@ class OpenSearchBaseCharm(CharmBase, abc.ABC):
             event.fail(f"{user_name} user not configured yet.")
             return
 
-        if not self.tls.is_fully_configured():
-            event.fail("TLS certificates not configured yet.")
-            return
-
         password = self.secrets.get(Scope.APP, self.secrets.password_key(user_name))
         cert = self.secrets.get_object(
             Scope.APP, CertType.APP_ADMIN.val
@@ -819,13 +815,18 @@ class OpenSearchBaseCharm(CharmBase, abc.ABC):
             }
         )
 
-    def on_tls_ca_rotation(self):
-        """Called when adding new CA to the trust store."""
-        self.status.set(MaintenanceStatus(TLSCaRotation))
-        self._restart_opensearch_event.emit()
+    def on_new_ca_added(self):
+        """Called when a new CA is added to the truststore."""
+        try:
+            self.tls.reload_tls_certificates()
+        except OpenSearchHttpError:
+            logger.error(
+                "Could not reload certificates via API after adding new CA, will restart."
+            )
+            self._restart_opensearch_event.emit()
 
     def on_tls_conf_set(
-        self, event: CertificateAvailableEvent, scope: Scope, cert_type: CertType, renewal: bool
+        self, event: CertificateAvailableEvent, scope: Scope, cert_type: CertType
     ):
         """Called after certificate ready and stored on the corresponding scope databag.
 
@@ -856,28 +857,27 @@ class OpenSearchBaseCharm(CharmBase, abc.ABC):
         self.tls.store_admin_tls_secrets_if_applies()
 
         # In case of renewal of the unit transport layer cert - restart opensearch
-        if renewal and self.is_admin_user_configured():
-            if self.tls.is_fully_configured():
-                try:
-                    self.tls.reload_tls_certificates()
-                except OpenSearchHttpError:
-                    logger.error("Could not reload TLS certificates via API, will restart.")
-                    self._restart_opensearch_event.emit()
-                else:
-                    self.status.clear(TLSNotFullyConfigured)
-                    self.tls.reset_ca_rotation_state()
-                    # if all certs are stored and CA rotation is complete in the cluster
-                    # we delete the old ca and update the chain to only include the new one
-                    if (
-                        self.tls.read_stored_ca("old-ca")
-                        and self.tls.ca_and_certs_rotation_complete_in_cluster()
-                    ):
-                        logger.info("on_tls_conf_set: Detected CA rotation complete in cluster")
-                        self.tls.on_ca_certs_rotation_complete()
-
+        if self.is_admin_user_configured():
+            try:
+                self.tls.reload_tls_certificates()
+            except OpenSearchHttpError:
+                logger.error("Could not reload TLS certificates via API, will restart.")
+                self._restart_opensearch_event.emit()
             else:
-                event.defer()
-                return
+                self.status.clear(TLSNotFullyConfigured)
+                self.tls.reset_ca_rotation_state()
+                # if all certs are stored and CA rotation is complete in the cluster
+                # we delete the old ca and update the chain to only include the new one
+                if (
+                    self.tls.read_stored_ca("old-ca")
+                    and self.tls.ca_and_certs_rotation_complete_in_cluster()
+                ):
+                    logger.info("on_tls_conf_set: Detected CA rotation complete in cluster")
+                    self.tls.on_ca_certs_rotation_complete()
+
+        else:
+            event.defer()
+            return
 
     def on_tls_relation_broken(self, _: RelationBrokenEvent):
         """As long as all certificates are produced, we don't do anything."""

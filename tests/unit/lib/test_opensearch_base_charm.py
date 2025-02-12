@@ -33,10 +33,12 @@ from charm import OpenSearchOperatorCharm
 from tests.helpers import patch_network_get
 
 
+BASE_LIB_PATH = "charms.opensearch.v0"
+
 @patch_network_get("1.1.1.1")
 @patch.dict("os.environ", {"JUJU_CONTEXT_ID": "foo"})
+@patch(f"{BASE_LIB_PATH}.opensearch_peer_clusters.OpenSearchPeerClustersManager.deployment_desc")
 class TestOpenSearchBaseCharm(unittest.TestCase):
-    BASE_LIB_PATH = "charms.opensearch.v0"
     BASE_CHARM_CLASS = f"{BASE_LIB_PATH}.opensearch_base_charm.OpenSearchBaseCharm"
     PEER_CLUSTERS_MANAGER = (
         f"{BASE_LIB_PATH}.opensearch_peer_clusters.OpenSearchPeerClustersManager"

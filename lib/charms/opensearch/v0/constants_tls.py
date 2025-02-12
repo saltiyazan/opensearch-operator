@@ -16,6 +16,9 @@ LIBPATCH = 1
 
 
 TLS_RELATION = "certificates"
+ADMIN_TLS_RELATION = "admin-certificates"
+TRANSPORT_TLS_RELATION = "transport-certificates"
+CLIENT_TLS_RELATION = "client-certificates"
 
 
 class CertType(BaseStrEnum):
