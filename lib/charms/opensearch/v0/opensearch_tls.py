@@ -13,38 +13,43 @@ It requires a charm that extends OpenSearchBaseCharm as it refers internal objec
 — update_config: to disable TLS when relation with the TLS Certificates Operator is broken.
 """
 
-import os
-from typing import Any, Dict, List, Tuple
 import logging
+import os
 import socket
 import tempfile
-from lib.charms.tls_certificates_interface.v4.tls_certificates import (
+import typing
+from typing import Any, Dict, List, Tuple
+
+from charms.opensearch.v0.helper_charm import run_cmd
+from charms.opensearch.v0.helper_networking import get_host_public_ip
+from charms.opensearch.v0.helper_security import generate_password
+from charms.opensearch.v0.models import DeploymentType
+from charms.opensearch.v0.opensearch_internal_data import Scope
+from charms.tls_certificates_interface.v4.tls_certificates import (
     Certificate,
+    CertificateAvailableEvent,
     CertificateRequestAttributes,
     Mode,
     PrivateKey,
     TLSCertificatesRequiresV4,
-    CertificateAvailableEvent,
 )
-from lib.charms.opensearch.v0.constants_tls import (
+from ops.framework import Object
+
+from charms.opensearch.v0.constants_tls import (
     ADMIN_TLS_RELATION,
-    TRANSPORT_TLS_RELATION,
     CLIENT_TLS_RELATION,
+    TRANSPORT_TLS_RELATION,
     CertType,
 )
-from charms.opensearch.v0.helper_networking import get_host_public_ip
-from charms.opensearch.v0.helper_security import generate_password
-from charms.opensearch.v0.models import DeploymentType
-from charms.opensearch.v0.helper_charm import run_cmd
 
-from charms.opensearch.v0.opensearch_internal_data import Scope
-from ops.framework import Object
 if typing.TYPE_CHECKING:
     from charms.opensearch.v0.opensearch_base_charm import OpenSearchBaseCharm
+
 from charms.opensearch.v0.opensearch_exceptions import (
     OpenSearchCmdError,
     OpenSearchError,
 )
+
 # The unique Charmhub library identifier, never change it
 LIBID = "8bcf275287ad486db5f25a1dbb26f920"
 
@@ -73,34 +78,25 @@ class OpenSearchTLS(Object):
         self.keytool = "opensearch.keytool"
         self._ensure_keystores()
         self.admin_certs = TLSCertificatesRequiresV4(
-            charm=self,
+            charm=self.charm,
             relationship_name=ADMIN_TLS_RELATION,
             certificate_requests=self._get_admin_certificate_requests(),
             mode=Mode.APP,
         )
         self.transport_certs = TLSCertificatesRequiresV4(
-            charm=self,
+            charm=self.charm,
             relationship_name=TRANSPORT_TLS_RELATION,
             certificate_requests=self._get_unit_certificate_requests(CertType.UNIT_TRANSPORT),
             mode=Mode.UNIT,
         )
         self.client_certs = TLSCertificatesRequiresV4(
-            charm=self,
+            charm=self.charm,
             relationship_name=CLIENT_TLS_RELATION,
             certificate_requests=self._get_unit_certificate_requests(CertType.UNIT_HTTP),
             mode=Mode.UNIT,
         )
         for cert in [self.admin_certs, self.transport_certs, self.client_certs]:
-            self.framework.observe(
-                cert.on.certificate_available, self._on_certificate_available
-            )
-            self.framework.observe(
-                cert.on.certificate_expiring, self._on_certificate_expiring
-            )
-            self.framework.observe(
-                cert.on.certificate_invalidated, self._on_certificate_invalidated
-            )
-
+            self.framework.observe(cert.on.certificate_available, self._on_certificate_available)
 
     def _get_admin_certificate_requests(self) -> List[CertificateRequestAttributes]:
         """Get the certificate requests for the admin certificate."""
@@ -133,6 +129,15 @@ class OpenSearchTLS(Object):
             )
         ]
 
+    def _get_subject(self, cert_type: CertType) -> str:
+        """Get subject of the certificate."""
+        if cert_type == CertType.APP_ADMIN:
+            cn = "admin"
+        else:
+            cn = self.charm.unit_ip
+
+        return cn
+
     def _on_certificate_available(self, event: CertificateAvailableEvent) -> None:
         scope, cert_type = self._get_certificate_scope_and_type(str(event.certificate))
         self._ensure_keystores()
@@ -150,10 +155,7 @@ class OpenSearchTLS(Object):
             "key": str(event.key),
             "cert": str(event.cert),
         }
-        self._store_new_tls_resources(
-            cert_type=cert_type,
-            resources=resources
-        )
+        self._store_new_tls_resources(cert_type=cert_type, resources=resources)
         for relation in self.charm.opensearch_provider.relations:
             try:
                 self.charm.opensearch_provider.update_certs(relation.id, ca_chain)
@@ -171,7 +173,7 @@ class OpenSearchTLS(Object):
         except OpenSearchError as e:
             logger.exception(e)
             event.defer()
-        
+
         self._clean_tls_resources()
 
     def _store_ca(self, ca_cert: str) -> bool:
@@ -263,7 +265,9 @@ class OpenSearchTLS(Object):
         all_added = True
 
         for ca_cert in ca_chain:
-            with tempfile.NamedTemporaryFile(mode="w+t", dir=self.charm.opensearch.paths.conf) as ca_tmp_file:
+            with tempfile.NamedTemporaryFile(
+                mode="w+t", dir=self.charm.opensearch.paths.conf
+            ) as ca_tmp_file:
                 ca_tmp_file.write(ca_cert)
                 ca_tmp_file.flush()
 
@@ -375,9 +379,8 @@ class OpenSearchTLS(Object):
 
     def _ensure_keystores(self) -> None:
         if not any(
-            self._relation_created(rel) for rel in [
-                ADMIN_TLS_RELATION, TRANSPORT_TLS_RELATION, CLIENT_TLS_RELATION
-            ]
+            self._relation_created(rel)
+            for rel in [ADMIN_TLS_RELATION, TRANSPORT_TLS_RELATION, CLIENT_TLS_RELATION]
         ):
             return
         if not (deployment_desc := self.charm.opensearch_peer_cm.deployment_desc()):

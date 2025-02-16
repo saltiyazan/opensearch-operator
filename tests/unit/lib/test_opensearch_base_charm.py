@@ -32,8 +32,8 @@ from ops.testing import Harness
 from charm import OpenSearchOperatorCharm
 from tests.helpers import patch_network_get
 
-
 BASE_LIB_PATH = "charms.opensearch.v0"
+
 
 @patch_network_get("1.1.1.1")
 @patch.dict("os.environ", {"JUJU_CONTEXT_ID": "foo"})

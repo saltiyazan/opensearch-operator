@@ -825,9 +825,7 @@ class OpenSearchBaseCharm(CharmBase, abc.ABC):
             )
             self._restart_opensearch_event.emit()
 
-    def on_tls_conf_set(
-        self, event: CertificateAvailableEvent, scope: Scope, cert_type: CertType
-    ):
+    def on_tls_conf_set(self, event: CertificateAvailableEvent, scope: Scope, cert_type: CertType):
         """Called after certificate ready and stored on the corresponding scope databag.
 
         - Store the cert on the file system, on all nodes for APP certificates
