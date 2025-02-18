@@ -20,6 +20,11 @@ parts:
     plugin: nil
     build-packages:
       - curl
+      - cargo
+      - libffi-dev
+      - libssl-dev
+      - pkg-config
+      - rustc
     override-build: |
       # Use environment variable instead of `--break-system-packages` to avoid failing on older
       # versions of pip that do not recognize `--break-system-packages`
