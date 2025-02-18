@@ -41,7 +41,12 @@ from charms.opensearch.v0.constants_charm import (
     TLSRelationMissing,
     WaitingToStart,
 )
-from charms.opensearch.v0.constants_tls import CertType
+from charms.opensearch.v0.constants_tls import (
+    CertType,
+    TRANSPORT_TLS_RELATION,
+    CLIENT_TLS_RELATION,
+    ADMIN_TLS_RELATION,
+)
 from charms.opensearch.v0.helper_charm import Status, all_units, format_unit_name
 from charms.opensearch.v0.helper_cluster import ClusterTopology, Node
 from charms.opensearch.v0.helper_networking import get_host_ip, units_ips
@@ -372,7 +377,11 @@ class OpenSearchBaseCharm(CharmBase, abc.ABC):
             return
 
         if not self.is_admin_user_configured() or not self.tls.is_fully_configured():
-            if not self.model.get_relation("certificates"):
+            if (
+                not self.model.get_relation(ADMIN_TLS_RELATION)
+                or not self.model.get_relation(TRANSPORT_TLS_RELATION)
+                or not self.model.get_relation(CLIENT_TLS_RELATION)
+            ):
                 status = BlockedStatus(TLSRelationMissing)
             else:
                 status = MaintenanceStatus(
@@ -672,7 +681,11 @@ class OpenSearchBaseCharm(CharmBase, abc.ABC):
             logger.debug("update_status: Detected CA rotation complete in cluster")
             self.tls.on_ca_certs_rotation_complete()
         # If relation not broken - leave
-        if self.model.get_relation("certificates") is not None:
+        if (
+            self.model.get_relation(ADMIN_TLS_RELATION) is not None
+            and self.model.get_relation(TRANSPORT_TLS_RELATION) is not None
+            and self.model.get_relation(CLIENT_TLS_RELATION) is not None
+        ):
             return
 
         # handle when/if certificates are expired
@@ -961,7 +974,11 @@ class OpenSearchBaseCharm(CharmBase, abc.ABC):
 
         # we check if we need to generate the admin certificate if missing
         if not self.tls.all_tls_resources_stored():
-            if not self.model.get_relation("certificates"):
+            if (
+                not self.model.get_relation(ADMIN_TLS_RELATION)
+                or not self.model.get_relation(TRANSPORT_TLS_RELATION)
+                or not self.model.get_relation(CLIENT_TLS_RELATION)
+            ):
                 event.defer()
                 return
 

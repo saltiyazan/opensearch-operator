@@ -29,7 +29,7 @@ ops = "^2.15"
 # data_platform_libs/v0/upgrade.py
 # grafana_agent/v0/cos_agent.py requires pydantic <2
 pydantic = "^1.10.17, <2"
-# tls_certificates_interface/v3/tls_certificates.py
+# tls_certificates_interface/v4/tls_certificates.py
 cryptography = "^43.0.0"
 jsonschema = "^4.23.0"
 # grafana_agent/v0/cos_agent.py

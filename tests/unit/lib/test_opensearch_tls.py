@@ -6,9 +6,8 @@ import itertools
 import re
 import socket
 import unittest
-import uuid
 from unittest import mock
-from unittest.mock import MagicMock, Mock, call, patch
+from unittest.mock import MagicMock, Mock, patch
 
 import responses
 from charms.opensearch.v0.constants_charm import (
@@ -16,7 +15,12 @@ from charms.opensearch.v0.constants_charm import (
     TLSCaRotation,
     TLSNotFullyConfigured,
 )
-from charms.opensearch.v0.constants_tls import TLS_RELATION, CertType
+from charms.opensearch.v0.constants_tls import (
+    ADMIN_TLS_RELATION,
+    CLIENT_TLS_RELATION,
+    TRANSPORT_TLS_RELATION,
+    CertType,
+)
 from charms.opensearch.v0.helper_conf_setter import YamlConfigSetter
 from charms.opensearch.v0.models import (
     App,
@@ -86,13 +90,17 @@ class TestOpenSearchTLS(unittest.TestCase):
         self.harness = Harness(OpenSearchOperatorCharm)
         self.addCleanup(self.harness.cleanup)
         self.rel_id = self.harness.add_network("1.1.1.1", endpoint=PeerRelationName)
-        self.harness.add_network("1.1.1.1", endpoint=TLS_RELATION)
+        self.harness.add_network("1.1.1.1", endpoint=ADMIN_TLS_RELATION)
+        self.harness.add_network("1.1.1.1", endpoint=CLIENT_TLS_RELATION)
+        self.harness.add_network("1.1.1.1", endpoint=TRANSPORT_TLS_RELATION)
         self.harness.begin()
         self.charm = self.harness.charm
 
         self.rel_id = self.harness.add_relation(PeerRelationName, self.charm.app.name)
         self.harness.add_relation_unit(self.rel_id, f"{self.charm.app.name}/0")
-        self.harness.add_relation(TLS_RELATION, self.charm.app.name)
+        self.harness.add_relation(ADMIN_TLS_RELATION, self.charm.app.name)
+        self.harness.add_relation(CLIENT_TLS_RELATION, self.charm.app.name)
+        self.harness.add_relation(TRANSPORT_TLS_RELATION, self.charm.app.name)
 
         self.secret_store = self.charm.secrets
 
@@ -276,40 +284,40 @@ class TestOpenSearchTLS(unittest.TestCase):
     @patch(
         f"{BASE_LIB_PATH}.opensearch_peer_clusters.OpenSearchPeerClustersManager.deployment_desc"
     )
-    @patch("charms.opensearch.v0.opensearch_tls.OpenSearchTLS._request_certificate")
+    @patch(
+        "charms.tls_certificates_interface.v4.tls_certificates.TLSCertificatesRequiresV4.regenerate_private_key"
+    )
     @patch("charm.OpenSearchOperatorCharm._put_or_update_internal_user_leader")
     @patch("charm.OpenSearchOperatorCharm._purge_users")
-    def test_on_set_tls_private_key(self, _, __, _request_certificate, deployment_desc):
-        """Test _on_set_tls private key event."""
+    def test_on_regenerate_tls_private_key(self, _, __, _regenerate_private_key, deployment_desc):
+        """Test _on_regenerate_tls_private_key event."""
         event_mock = MagicMock(params={"category": "app-admin"})
 
         self.harness.set_leader(is_leader=False)
         deployment_desc.return_value = self.deployment_descriptions["ko"]
         self.charm.tls._on_set_tls_private_key(event_mock)
-        _request_certificate.assert_not_called()
+        _regenerate_private_key.assert_not_called()
 
         self.harness.set_leader(is_leader=True)
         deployment_desc.return_value = self.deployment_descriptions["ok"]
         self.charm.tls._on_set_tls_private_key(event_mock)
-        _request_certificate.assert_called_once()
+        _regenerate_private_key.assert_called_once()
 
         event_mock = MagicMock(params={"category": "unit-transport"})
         self.harness.set_leader(is_leader=False)
         self.charm.tls._on_set_tls_private_key(event_mock)
-        _request_certificate.assert_called()
+        _regenerate_private_key.assert_called()
 
-    @patch("charms.opensearch.v0.opensearch_tls.OpenSearchTLS._request_certificate")
     @patch("charms.opensearch.v0.opensearch_tls.OpenSearchTLS._create_keystore_pwd_if_not_exists")
-    @patch("charm.OpenSearchOperatorCharm.on_tls_conf_set")
     @patch("charms.opensearch.v0.opensearch_tls.OpenSearchTLS.store_new_ca")
     @patch("charm.OpenSearchOperatorCharm._put_or_update_internal_user_leader")
+    @patch("charm.OpenSearchOperatorCharm.on_tls_conf_set")
     def test_on_certificate_available(
         self,
-        _,
         on_tls_conf_set,
-        _request_certificate,
-        store_new_ca,
-        _create_keystore_pwd_if_not_exists,
+        _,
+        __,
+        ___,
     ):
         """Test _on_certificate_available event."""
         csr = "csr_12345"
@@ -342,78 +350,6 @@ class TestOpenSearchTLS(unittest.TestCase):
         )
 
         on_tls_conf_set.assert_called()
-
-    @patch(
-        "charms.tls_certificates_interface.v3.tls_certificates.TLSCertificatesRequiresV3.request_certificate_creation"
-    )
-    @patch(
-        f"{BASE_LIB_PATH}.opensearch_peer_clusters.OpenSearchPeerClustersManager.deployment_desc"
-    )
-    @patch("charm.OpenSearchOperatorCharm._put_or_update_internal_user_leader")
-    def test_on_certificate_expiring(self, _, deployment_desc, request_certificate_creation):
-        """Test _on_certificate_available event."""
-        csr = "csr_12345"
-        cert = "cert_12345"
-        key = create_utf8_encoded_private_key()
-        secret_key = CertType.UNIT_TRANSPORT.val
-
-        self.secret_store.put_object(
-            Scope.UNIT,
-            secret_key,
-            {"csr": csr, "cert": cert, "key": key},
-        )
-
-        deployment_desc.return_value = DeploymentDescription(
-            config=PeerClusterConfig(
-                cluster_name="", init_hold=False, roles=[], profile="production"
-            ),
-            start=StartMode.WITH_GENERATED_ROLES,
-            pending_directives=[],
-            typ=DeploymentType.MAIN_ORCHESTRATOR,
-            app=App(model_uuid=self.charm.model.uuid, name=self.charm.app.name),
-            state=DeploymentState(value=State.ACTIVE),
-        )
-
-        event_mock = MagicMock(certificate=cert)
-        self.charm.tls._on_certificate_expiring(event_mock)
-
-        request_certificate_creation.assert_called_once()
-
-    @patch(
-        "charms.tls_certificates_interface.v3.tls_certificates.TLSCertificatesRequiresV3.request_certificate_renewal"
-    )
-    @patch(
-        f"{BASE_LIB_PATH}.opensearch_peer_clusters.OpenSearchPeerClustersManager.deployment_desc"
-    )
-    @patch("charm.OpenSearchOperatorCharm._put_or_update_internal_user_leader")
-    def test_on_certificate_invalidated(self, _, deployment_desc, request_certificate_renewal):
-        """Test _on_certificate_invalidated event."""
-        csr = "csr_12345"
-        cert = "cert_12345"
-        key = create_utf8_encoded_private_key()
-        secret_key = CertType.UNIT_TRANSPORT.val
-
-        self.secret_store.put_object(
-            Scope.UNIT,
-            secret_key,
-            {"csr": csr, "cert": cert, "key": key},
-        )
-
-        deployment_desc.return_value = DeploymentDescription(
-            config=PeerClusterConfig(
-                cluster_name="", init_hold=False, roles=[], profile="production"
-            ),
-            start=StartMode.WITH_GENERATED_ROLES,
-            pending_directives=[],
-            typ=DeploymentType.MAIN_ORCHESTRATOR,
-            app=App(model_uuid=self.charm.model.uuid, name=self.charm.app.name),
-            state=DeploymentState(value=State.ACTIVE),
-        )
-
-        event_mock = MagicMock(certificate=cert)
-        self.charm.tls._on_certificate_invalidated(event_mock)
-
-        request_certificate_renewal.assert_called_once()
 
     # Testing store_new_ca() function
 
@@ -953,16 +889,6 @@ class TestOpenSearchTLS(unittest.TestCase):
             (DeploymentType.FAILOVER_ORCHESTRATOR),
         ]
     )
-    @patch("charms.opensearch.v0.opensearch_tls.generate_csr")
-    @patch(
-        "charms.tls_certificates_interface.v3.tls_certificates.TLSCertificatesRequiresV3.request_certificate_renewal"
-    )
-    @patch(
-        "charms.tls_certificates_interface.v3.tls_certificates.TLSCertificatesRequiresV3.request_certificate_revocation"
-    )
-    @patch(
-        "charms.tls_certificates_interface.v3.tls_certificates.TLSCertificatesRequiresV3.request_certificate_creation"
-    )
     @patch("charms.opensearch.v0.opensearch_tls.OpenSearchTLS.read_stored_ca")
     @patch(f"{PEER_CLUSTERS_MANAGER}.deployment_desc")
     # Necessary mocks to simulate a smotth startup
@@ -980,9 +906,6 @@ class TestOpenSearchTLS(unittest.TestCase):
         deployment_desc,
         read_stored_ca,
         create_cert,
-        revoke_cert,
-        renew_cert,
-        generate_csr,
     ):
         """Test CA rotation 2nd stage.
 
@@ -991,15 +914,13 @@ class TestOpenSearchTLS(unittest.TestCase):
         was supposed to take place.
 
         After the restart
-         - old certificates have to be invalidated
-         - unit certificates have to be renewed using the new CA cert
+         - old certificates have to be renewed using the new CA cert
          - to signify the above being completed, the 'tls_ca_renewed' flag is set in the databag.
 
         Applies to
          - any deployment types
          - LEADER ONLY
         """
-        generate_csr.return_value = uuid.uuid4().hex.encode()
         # Units had their certificates already
         old_csr = "old_csr"
         old_key = create_utf8_encoded_private_key()
@@ -1083,27 +1004,6 @@ class TestOpenSearchTLS(unittest.TestCase):
         assert new_app_admin_secret["key"] == old_key
         assert new_app_admin_secret["subject"] != old_subject
 
-        # 1 for admin cert, 2 for unit certs
-        assert generate_csr.call_count == 3
-
-        # new unit certs
-        assert revoke_cert.call_count == 2
-        revoke_cert.assert_has_calls([call(b"csr-http"), call(b"csr-transport")])
-
-        assert renew_cert.call_count == 2
-        renew_cert.assert_has_calls(
-            [
-                call(
-                    old_certificate_signing_request=b"csr-http",
-                    new_certificate_signing_request=generate_csr(),
-                ),
-                call(
-                    old_certificate_signing_request=b"csr-transport",
-                    new_certificate_signing_request=generate_csr(),
-                ),
-            ]
-        )
-
         # new admin cert
         assert create_cert.call_count == 1
         # we store the decoded csr in the secret but pass it as bytes to the function
@@ -1123,13 +1023,6 @@ class TestOpenSearchTLS(unittest.TestCase):
             (DeploymentType.FAILOVER_ORCHESTRATOR),
         ]
     )
-    @patch("charms.opensearch.v0.opensearch_tls.generate_csr")
-    @patch(
-        "charms.tls_certificates_interface.v3.tls_certificates.TLSCertificatesRequiresV3.request_certificate_renewal"
-    )
-    @patch(
-        "charms.tls_certificates_interface.v3.tls_certificates.TLSCertificatesRequiresV3.request_certificate_revocation"
-    )
     @patch(f"{PEER_CLUSTERS_MANAGER}.deployment_desc")
     # Mocks to avoid I/O
     @patch("charms.opensearch.v0.opensearch_tls.OpenSearchTLS.read_stored_ca")
@@ -1145,9 +1038,6 @@ class TestOpenSearchTLS(unittest.TestCase):
         upgrade,
         read_stored_ca,
         deployment_desc,
-        revoke_cert,
-        renew_cert,
-        generate_csr,
     ):
         """Test CA rotation 2nd stage.
 
@@ -1162,7 +1052,6 @@ class TestOpenSearchTLS(unittest.TestCase):
          - any deployment types
          - any units
         """
-        generate_csr.return_value = uuid.uuid4().hex.encode()
         # Units had their certificates already
         csr = "old_csr"
         ca = "new_ca"
@@ -1240,25 +1129,6 @@ class TestOpenSearchTLS(unittest.TestCase):
         assert (
             self.harness.get_relation_data(self.rel_id, "opensearch/0")["tls_ca_renewing"]
             == "True"
-        )
-
-        assert revoke_cert.call_count == 2
-        revoke_cert.assert_has_calls(
-            [call(csr_http_old.encode()), call(csr_transport_old.encode())]
-        )
-
-        assert renew_cert.call_count == 2
-        renew_cert.assert_has_calls(
-            [
-                call(
-                    old_certificate_signing_request=csr_http_old.encode(),
-                    new_certificate_signing_request=generate_csr(),
-                ),
-                call(
-                    old_certificate_signing_request=csr_transport_old.encode(),
-                    new_certificate_signing_request=generate_csr(),
-                ),
-            ]
         )
 
         assert (
