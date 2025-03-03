@@ -16,7 +16,7 @@ requests = "2.32.3"
 ruamel-yaml = "0.18.6"
 shortuuid = "1.0.13"
 jproperties = "2.1.1"
-pydantic = "^1.10.17, <2"
+pydantic = ">2"
 cryptography = "^43.0.0"
 jsonschema = "^4.23.0"
 data-platform-helpers = "^0.1.4"
@@ -27,8 +27,7 @@ poetry-core = "<2.0.0"
 # data_platform_libs/v0/data_interfaces.py
 ops = "^2.15"
 # data_platform_libs/v0/upgrade.py
-# grafana_agent/v0/cos_agent.py requires pydantic <2
-pydantic = "^1.10.17, <2"
+
 # tls_certificates_interface/v4/tls_certificates.py
 cryptography = "^43.0.0"
 jsonschema = "^4.23.0"

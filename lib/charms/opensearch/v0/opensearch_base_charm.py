@@ -861,21 +861,17 @@ class OpenSearchBaseCharm(CharmBase, abc.ABC):
                 return
 
             keystore_pwd = self.secrets.get_object(scope, cert_type.val)["keystore-password"]
-
             # node http or transport cert
             self.opensearch_config.set_node_tls_conf(
                 cert_type,
                 truststore_pwd=truststore_pwd,
                 keystore_pwd=keystore_pwd,
             )
-
             # write the admin cert conf on all units, in case there is a leader loss + cert renewal
             if not admin_secrets.get("subject"):
                 return
             self.opensearch_config.set_admin_tls_conf(admin_secrets)
-
         self.tls.store_admin_tls_secrets_if_applies()
-
         # In case of renewal of the unit transport layer cert - restart opensearch
         if renewal and self.is_admin_user_configured():
             if self.tls.is_fully_configured():
