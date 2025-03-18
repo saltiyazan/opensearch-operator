@@ -286,8 +286,12 @@ class TestOpenSearchTLS(unittest.TestCase):
     @patch("charms.opensearch.v0.opensearch_tls.OpenSearchTLS.store_new_ca")
     @patch("charm.OpenSearchOperatorCharm.on_tls_conf_set")
     @patch(f"{PEER_CLUSTERS_MANAGER}.deployment_desc")
-    @patch("charms.tls_certificates_interface.v4.tls_certificates.CertificateSigningRequest.from_string")
-    @patch("charms.tls_certificates_interface.v4.tls_certificates.CertificateRequestAttributes.from_csr")
+    @patch(
+        "charms.tls_certificates_interface.v4.tls_certificates.CertificateSigningRequest.from_string"
+    )
+    @patch(
+        "charms.tls_certificates_interface.v4.tls_certificates.CertificateRequestAttributes.from_csr"
+    )
     def test_on_certificate_available_admin_cert(
         self,
         certificate_request_attributes_from_csr,
@@ -316,7 +320,9 @@ class TestOpenSearchTLS(unittest.TestCase):
         deployment_desc.return_value = deployment_descriptions["ok"]
         self.harness.set_leader(is_leader=True)
         certificate_signing_request_from_string.return_value = Mock()
-        certificate_request_attributes_from_csr.return_value = self.harness.charm.tls._get_admin_certificate_requests()[0]
+        certificate_request_attributes_from_csr.return_value = (
+            self.harness.charm.tls._get_admin_certificate_requests()[0]
+        )
         cert = "cert_12345"
         csr = "csr_12345"
         chain = ["chain_12345"]
@@ -354,8 +360,12 @@ class TestOpenSearchTLS(unittest.TestCase):
     @patch("charm.OpenSearchOperatorCharm._put_or_update_internal_user_leader")
     @patch("charms.opensearch.v0.opensearch_tls.OpenSearchTLS.store_new_ca")
     @patch("charm.OpenSearchOperatorCharm.on_tls_conf_set")
-    @patch("charms.tls_certificates_interface.v4.tls_certificates.CertificateSigningRequest.from_string")
-    @patch("charms.tls_certificates_interface.v4.tls_certificates.CertificateRequestAttributes.from_csr")
+    @patch(
+        "charms.tls_certificates_interface.v4.tls_certificates.CertificateSigningRequest.from_string"
+    )
+    @patch(
+        "charms.tls_certificates_interface.v4.tls_certificates.CertificateRequestAttributes.from_csr"
+    )
     @patch(f"{PEER_CLUSTERS_MANAGER}.deployment_desc")
     def test_on_certificate_available_unit_cert_admin_cert_not_available(
         self,
@@ -424,8 +434,12 @@ class TestOpenSearchTLS(unittest.TestCase):
     @patch("charm.OpenSearchOperatorCharm._put_or_update_internal_user_leader")
     @patch("charms.opensearch.v0.opensearch_tls.OpenSearchTLS.store_new_ca")
     @patch("charm.OpenSearchOperatorCharm.on_tls_conf_set")
-    @patch("charms.tls_certificates_interface.v4.tls_certificates.CertificateSigningRequest.from_string")
-    @patch("charms.tls_certificates_interface.v4.tls_certificates.CertificateRequestAttributes.from_csr")
+    @patch(
+        "charms.tls_certificates_interface.v4.tls_certificates.CertificateSigningRequest.from_string"
+    )
+    @patch(
+        "charms.tls_certificates_interface.v4.tls_certificates.CertificateRequestAttributes.from_csr"
+    )
     @patch(f"{PEER_CLUSTERS_MANAGER}.deployment_desc")
     def test_on_certificate_available_unit_cert_admin_cert_available(
         self,
@@ -561,8 +575,12 @@ class TestOpenSearchTLS(unittest.TestCase):
     @patch(f"{PEER_CLUSTERS_MANAGER}.deployment_desc")
     # Mocks to avoid I/O
     @patch("charms.opensearch.v0.opensearch_tls.OpenSearchTLS.read_stored_ca")
-    @patch("charms.tls_certificates_interface.v4.tls_certificates.CertificateSigningRequest.from_string")
-    @patch("charms.tls_certificates_interface.v4.tls_certificates.CertificateRequestAttributes.from_csr")
+    @patch(
+        "charms.tls_certificates_interface.v4.tls_certificates.CertificateSigningRequest.from_string"
+    )
+    @patch(
+        "charms.tls_certificates_interface.v4.tls_certificates.CertificateRequestAttributes.from_csr"
+    )
     @patch("builtins.open", side_effect=unittest.mock.mock_open())
     def test_on_certificate_available_leader_app_cert_full_workflow(
         self,
@@ -688,8 +706,12 @@ class TestOpenSearchTLS(unittest.TestCase):
     # Mocks to avoid I/O
     @patch("charms.opensearch.v0.opensearch_tls.OpenSearchTLS.read_stored_ca")
     @patch(f"{BASE_LIB_PATH}.opensearch_tls.get_host_public_ip")
-    @patch("charms.tls_certificates_interface.v4.tls_certificates.CertificateSigningRequest.from_string")
-    @patch("charms.tls_certificates_interface.v4.tls_certificates.CertificateRequestAttributes.from_csr")
+    @patch(
+        "charms.tls_certificates_interface.v4.tls_certificates.CertificateSigningRequest.from_string"
+    )
+    @patch(
+        "charms.tls_certificates_interface.v4.tls_certificates.CertificateRequestAttributes.from_csr"
+    )
     @patch("builtins.open", side_effect=unittest.mock.mock_open())
     def test_on_certificate_available_any_node_unit_cert_full_workflow(
         self,
@@ -842,8 +864,12 @@ class TestOpenSearchTLS(unittest.TestCase):
     @patch("charms.opensearch.v0.opensearch_tls.run_cmd")
     @patch("charms.opensearch.v0.opensearch_tls.OpenSearchTLS.read_stored_ca")
     @patch(f"{PEER_CLUSTERS_MANAGER}.deployment_desc")
-    @patch("charms.tls_certificates_interface.v4.tls_certificates.CertificateSigningRequest.from_string")
-    @patch("charms.tls_certificates_interface.v4.tls_certificates.CertificateRequestAttributes.from_csr")
+    @patch(
+        "charms.tls_certificates_interface.v4.tls_certificates.CertificateSigningRequest.from_string"
+    )
+    @patch(
+        "charms.tls_certificates_interface.v4.tls_certificates.CertificateRequestAttributes.from_csr"
+    )
     # Mocks to avoid I/O
     @patch("builtins.open", side_effect=unittest.mock.mock_open())
     def test_on_certificate_available_ca_rotation_first_stage_any_cluster_leader(
@@ -983,8 +1009,12 @@ class TestOpenSearchTLS(unittest.TestCase):
     @patch("charms.opensearch.v0.opensearch_tls.run_cmd")
     @patch("charms.opensearch.v0.opensearch_tls.OpenSearchTLS.read_stored_ca")
     @patch(f"{PEER_CLUSTERS_MANAGER}.deployment_desc")
-    @patch("charms.tls_certificates_interface.v4.tls_certificates.CertificateSigningRequest.from_string")
-    @patch("charms.tls_certificates_interface.v4.tls_certificates.CertificateRequestAttributes.from_csr")
+    @patch(
+        "charms.tls_certificates_interface.v4.tls_certificates.CertificateSigningRequest.from_string"
+    )
+    @patch(
+        "charms.tls_certificates_interface.v4.tls_certificates.CertificateRequestAttributes.from_csr"
+    )
     def test_on_certificate_available_ca_rotation_first_stage_any_cluster_non_leader(
         # NOTE: Syntax: parametrized parameter comes first
         self,
@@ -1298,8 +1328,12 @@ class TestOpenSearchTLS(unittest.TestCase):
             (DeploymentType.FAILOVER_ORCHESTRATOR),
         ]
     )
-    @patch("charms.tls_certificates_interface.v4.tls_certificates.CertificateSigningRequest.from_string")
-    @patch("charms.tls_certificates_interface.v4.tls_certificates.CertificateRequestAttributes.from_csr")
+    @patch(
+        "charms.tls_certificates_interface.v4.tls_certificates.CertificateSigningRequest.from_string"
+    )
+    @patch(
+        "charms.tls_certificates_interface.v4.tls_certificates.CertificateRequestAttributes.from_csr"
+    )
     @patch("charms.opensearch.v0.opensearch_tls.tempfile.NamedTemporaryFile")
     @patch("charms.opensearch.v0.opensearch_tls.run_cmd")
     @patch(f"{PEER_CLUSTERS_MANAGER}.deployment_desc")
@@ -1452,8 +1486,12 @@ class TestOpenSearchTLS(unittest.TestCase):
     @patch(f"{PEER_CLUSTERS_MANAGER}.deployment_desc")
     @patch("charms.opensearch.v0.opensearch_tls.OpenSearchTLS.read_stored_ca")
     @patch(f"{BASE_LIB_PATH}.opensearch_tls.get_host_public_ip")
-    @patch("charms.tls_certificates_interface.v4.tls_certificates.CertificateSigningRequest.from_string")
-    @patch("charms.tls_certificates_interface.v4.tls_certificates.CertificateRequestAttributes.from_csr")
+    @patch(
+        "charms.tls_certificates_interface.v4.tls_certificates.CertificateSigningRequest.from_string"
+    )
+    @patch(
+        "charms.tls_certificates_interface.v4.tls_certificates.CertificateRequestAttributes.from_csr"
+    )
     # Mocks to avoid I/O
     @patch("charms.opensearch.v0.opensearch_tls.exists", return_value=True)
     @patch("opensearch.OpenSearchSnap.write_file")
@@ -1644,8 +1682,12 @@ class TestOpenSearchTLS(unittest.TestCase):
     @patch(f"{PEER_CLUSTERS_MANAGER}.deployment_desc")
     # Mock to avoid I/O
     @patch("charms.opensearch.v0.opensearch_tls.OpenSearchTLS.read_stored_ca")
-    @patch("charms.tls_certificates_interface.v4.tls_certificates.CertificateSigningRequest.from_string")
-    @patch("charms.tls_certificates_interface.v4.tls_certificates.CertificateRequestAttributes.from_csr")
+    @patch(
+        "charms.tls_certificates_interface.v4.tls_certificates.CertificateSigningRequest.from_string"
+    )
+    @patch(
+        "charms.tls_certificates_interface.v4.tls_certificates.CertificateRequestAttributes.from_csr"
+    )
     @patch("builtins.open", side_effect=unittest.mock.mock_open())
     def test_on_certificate_available_rotation_ongoing_on_this_unit(
         # NOTE: Syntax: parametrized parameter comes first
@@ -1764,8 +1806,12 @@ class TestOpenSearchTLS(unittest.TestCase):
             )
         )
     )
-    @patch("charms.tls_certificates_interface.v4.tls_certificates.CertificateSigningRequest.from_string")
-    @patch("charms.tls_certificates_interface.v4.tls_certificates.CertificateRequestAttributes.from_csr")
+    @patch(
+        "charms.tls_certificates_interface.v4.tls_certificates.CertificateSigningRequest.from_string"
+    )
+    @patch(
+        "charms.tls_certificates_interface.v4.tls_certificates.CertificateRequestAttributes.from_csr"
+    )
     @patch("charms.opensearch.v0.opensearch_tls.OpenSearchTLS._add_ca_to_request_bundle")
     @patch("charms.opensearch.v0.opensearch_tls.tempfile.NamedTemporaryFile")
     @patch("charms.opensearch.v0.opensearch_tls.run_cmd")

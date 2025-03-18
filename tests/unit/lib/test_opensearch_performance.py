@@ -13,10 +13,9 @@ from charms.opensearch.v0.models import (
     PerformanceType,
 )
 from ops.testing import Harness
-
-from charm import OpenSearchOperatorCharm
 from pydantic import ValidationError
 
+from charm import OpenSearchOperatorCharm
 
 
 @pytest.fixture

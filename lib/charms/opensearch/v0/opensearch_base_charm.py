@@ -42,10 +42,10 @@ from charms.opensearch.v0.constants_charm import (
     WaitingToStart,
 )
 from charms.opensearch.v0.constants_tls import (
-    CertType,
-    TRANSPORT_TLS_RELATION,
-    CLIENT_TLS_RELATION,
     ADMIN_TLS_RELATION,
+    CLIENT_TLS_RELATION,
+    TRANSPORT_TLS_RELATION,
+    CertType,
 )
 from charms.opensearch.v0.helper_charm import Status, all_units, format_unit_name
 from charms.opensearch.v0.helper_cluster import ClusterTopology, Node

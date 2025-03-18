@@ -125,7 +125,9 @@ class OpenSearchTLS(Object):
         if not self.charm.unit.is_leader():
             logger.warning("Admin certificates are only available on the leader unit")
             return []
-        if not self.charm.opensearch_peer_cm.deployment_desc() or not self.model.get_relation(self.peer_relation):
+        if not self.charm.opensearch_peer_cm.deployment_desc() or not self.model.get_relation(
+            self.peer_relation
+        ):
             return []
         return [
             CertificateRequestAttributes(
@@ -138,7 +140,9 @@ class OpenSearchTLS(Object):
     def _get_unit_certificate_requests(
         self, cert_type: CertType
     ) -> List[CertificateRequestAttributes]:
-        if not self.charm.opensearch_peer_cm.deployment_desc() or not self.model.get_relation(self.peer_relation):
+        if not self.charm.opensearch_peer_cm.deployment_desc() or not self.model.get_relation(
+            self.peer_relation
+        ):
             return []
         sans = self._get_sans(cert_type)
         return [
@@ -199,7 +203,9 @@ class OpenSearchTLS(Object):
             (CertType.UNIT_TRANSPORT, self.transport_certs),
         ]:
             certificate_attributes = self._get_unit_certificate_requests(cert_type)[0]
-            provider_certificate, _ = cert_requirer.get_assigned_certificate(certificate_attributes)
+            provider_certificate, _ = cert_requirer.get_assigned_certificate(
+                certificate_attributes
+            )
             if provider_certificate:
                 cert_requirer.renew_certificate(provider_certificate)
 
@@ -252,14 +258,18 @@ class OpenSearchTLS(Object):
             scope, cert_type, secrets = self._find_secret(event.certificate_signing_request, "csr")
             logger.debug(f"{scope.val}.{cert_type.val} TLS certificate available.")
         except TypeError:
-            certificate_signing_request = CertificateSigningRequest.from_string(event.certificate_signing_request)
+            certificate_signing_request = CertificateSigningRequest.from_string(
+                event.certificate_signing_request
+            )
             certificate_attributes = CertificateRequestAttributes.from_csr(
                 certificate_signing_request, False
             )
             if certificate_attributes in self._get_admin_certificate_requests():
                 scope = Scope.APP
                 cert_type = CertType.APP_ADMIN
-            elif certificate_attributes in self._get_unit_certificate_requests(CertType.UNIT_TRANSPORT):
+            elif certificate_attributes in self._get_unit_certificate_requests(
+                CertType.UNIT_TRANSPORT
+            ):
                 scope = Scope.UNIT
                 cert_type = CertType.UNIT_TRANSPORT
             elif certificate_attributes in self._get_unit_certificate_requests(CertType.UNIT_HTTP):
