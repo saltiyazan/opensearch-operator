@@ -99,7 +99,7 @@ from charms.opensearch.v0.opensearch_users import (
     OpenSearchUserManager,
     OpenSearchUserMgmtError,
 )
-from charms.tls_certificates_interface.v3.tls_certificates import (
+from charms.tls_certificates_interface.v4.tls_certificates import (
     CertificateAvailableEvent,
 )
 from ops.charm import (

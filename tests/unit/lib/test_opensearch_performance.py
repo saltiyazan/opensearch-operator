@@ -15,6 +15,8 @@ from charms.opensearch.v0.models import (
 from ops.testing import Harness
 
 from charm import OpenSearchOperatorCharm
+from pydantic import ValidationError
+
 
 
 @pytest.fixture
@@ -31,7 +33,7 @@ def test_production_profile_type():
 
 
 def test_invalid_profile_type():
-    with pytest.raises(AttributeError):
+    with pytest.raises(ValidationError):
         OpenSearchPerfProfile.from_dict({"typ": "INVALID_TYPE"})
 
 

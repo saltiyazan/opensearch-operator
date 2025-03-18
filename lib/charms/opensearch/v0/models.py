@@ -7,13 +7,13 @@ import logging
 from abc import ABC
 from datetime import datetime
 from hashlib import md5
-from typing import Any, Dict, List, Literal, Optional
+from typing import Any, Dict, List, Literal, Optional, ClassVar
 
 from charms.opensearch.v0.constants_charm import AZURE_REPO_BASE_PATH, S3_REPO_BASE_PATH
 from charms.opensearch.v0.constants_secrets import AZURE_CREDENTIALS, S3_CREDENTIALS
 from charms.opensearch.v0.helper_enums import BaseStrEnum
-from pydantic import BaseModel, Field, root_validator, validator
-from pydantic.utils import ROOT_KEY
+from pydantic import BaseModel, Field, model_validator, field_validator
+from typing_extensions import Self
 
 # The unique Charmhub library identifier, never change it
 LIBID = "6007e8030e4542e6b189e2873c8fbfef"
@@ -35,10 +35,12 @@ logger = logging.getLogger(__name__)
 
 class Model(ABC, BaseModel):
     """Base model class."""
-
+    
+    model_config = {
+        "populate_by_name": True,
+    }
+    
     def __init__(self, **data: Any) -> None:
-        if self.__custom_root_type__ and data.keys() != {ROOT_KEY}:
-            data = {ROOT_KEY: data}
         super().__init__(**data)
 
     def to_str(self, by_alias: bool = False) -> str:
@@ -47,19 +49,19 @@ class Model(ABC, BaseModel):
 
     def to_dict(self, by_alias: bool = False) -> Dict[str, Any]:
         """Deserialize object into a dict."""
-        return self.dict(by_alias=by_alias)
+        return self.model_dump(by_alias=by_alias)
 
     @classmethod
-    def from_dict(cls, input_dict: Optional[Dict[str, Any]]):
+    def from_dict(cls, input_dict: Optional[Dict[str, Any]]) -> Self:
         """Create a new instance of this class from a json/dict repr."""
         if not input_dict:  # to handle when classes defined defaults
             return cls()
         return cls(**input_dict)
 
     @classmethod
-    def from_str(cls, input_str_dict: str):
+    def from_str(cls, input_str_dict: str) -> Self:
         """Create a new instance of this class from a stringified json/dict repr."""
-        return cls.parse_raw(input_str_dict)
+        return cls.model_validate_json(input_str_dict)
 
     @staticmethod
     def sort_payload(payload: any) -> any:
@@ -103,23 +105,31 @@ class App(Model):
     name: Optional[str] = None
     model_uuid: Optional[str] = None
 
-    @root_validator
-    def set_props(cls, values):  # noqa: N805
+    @model_validator(mode='after')
+    def set_props(self):
         """Generate the attributes depending on the input."""
-        if None not in list(values.values()):
-            return values
+        # If all fields are already populated, nothing to do
+        if self.id is not None and self.short_id is not None and self.name is not None and self.model_uuid is not None:
+            return self
 
-        if not values["id"] and None in [values["name"], values["model_uuid"]]:
+        # If we have name and model_uuid but no id, generate the id
+        if self.id is None and self.name is not None and self.model_uuid is not None:
+            self.id = f"{self.model_uuid}/{self.name}"
+        
+        # If we have id but no name/model_uuid, extract them
+        elif self.id is not None and (self.name is None or self.model_uuid is None):
+            full_id_split = self.id.split("/")
+            self.model_uuid, self.name = full_id_split[0], full_id_split[-1]
+        
+        # If we don't have enough information, raise an error
+        elif self.id is None and (self.name is None or self.model_uuid is None):
             raise ValueError("'id' or 'name and model_uuid' must be set.")
-
-        if values["id"]:
-            full_id_split = values["id"].split("/")
-            values["name"], values["model_uuid"] = full_id_split[-1], full_id_split[0]
-        else:
-            values["id"] = f"{values['model_uuid']}/{values['name']}"
-
-        values["short_id"] = md5(values["id"].encode()).hexdigest()[:3]
-        return values
+        
+        # Generate short_id if needed
+        if self.short_id is None and self.id is not None:
+            self.short_id = md5(self.id.encode()).hexdigest()[:3]
+            
+        return self
 
 
 class Node(Model):
@@ -132,8 +142,8 @@ class Node(Model):
     unit_number: int
     temperature: Optional[str] = None
 
+    @field_validator("roles")
     @classmethod
-    @validator("roles")
     def roles_set(cls, v):
         """Returns deduplicated list of roles."""
         return list(set(v))
@@ -205,15 +215,15 @@ class DeploymentState(Model):
     value: State
     message: str = Field(default="")
 
-    @root_validator
-    def prevent_none(cls, values):  # noqa: N805
+    @model_validator(mode='after')
+    def prevent_none(self):
         """Validate the message or lack of depending on the state."""
-        if values["value"] == State.ACTIVE:
-            values["message"] = ""
-        elif not values["message"].strip():
+        if self.value == State.ACTIVE:
+            self.message = ""
+        elif not self.message.strip():
             raise ValueError("The message must be set when state not Active.")
 
-        return values
+        return self
 
 
 class PeerClusterConfig(Model):
@@ -228,13 +238,13 @@ class PeerClusterConfig(Model):
     profile: Optional[PerformanceType] = PerformanceType.TESTING
     data_temperature: Optional[str] = None
 
-    @root_validator
-    def set_node_temperature(cls, values):  # noqa: N805
+    @model_validator(mode='after')
+    def set_node_temperature(self):
         """Set and validate the node temperature."""
         allowed_temps = ["hot", "warm", "cold", "frozen", "content"]
 
         input_temps = set()
-        for role in values["roles"]:
+        for role in self.roles:
             if not role.startswith("data."):
                 continue
 
@@ -248,13 +258,13 @@ class PeerClusterConfig(Model):
             raise ValueError("More than 1 data temperature provided.")
         elif input_temps:
             temperature = input_temps.pop()
-            values["data_temperature"] = temperature
+            self.data_temperature = temperature
 
-            values["roles"].append("data")
-            values["roles"].remove(f"data.{temperature}")
-            values["roles"] = list(set(values["roles"]))
+            self.roles.append("data")
+            self.roles.remove(f"data.{temperature}")
+            self.roles = list(set(self.roles))
 
-        return values
+        return self
 
 
 class DeploymentDescription(Model):
@@ -267,15 +277,15 @@ class DeploymentDescription(Model):
     typ: DeploymentType
     state: DeploymentState = DeploymentState(value=State.ACTIVE)
     cluster_name_autogenerated: bool = False
-    promotion_time: Optional[float]
+    promotion_time: Optional[float] = None
 
-    @root_validator
-    def set_promotion_time(cls, values):  # noqa: N805
+    @model_validator(mode='after')
+    def set_promotion_time(self):
         """Set promotion time of a failover to a main CM."""
-        if not values["promotion_time"] and values["typ"] == DeploymentType.MAIN_ORCHESTRATOR:
-            values["promotion_time"] = datetime.now().timestamp()
+        if not self.promotion_time and self.typ == DeploymentType.MAIN_ORCHESTRATOR:
+            self.promotion_time = datetime.now().timestamp()
 
-        return values
+        return self
 
 
 class S3RelDataCredentials(Model):
@@ -283,11 +293,6 @@ class S3RelDataCredentials(Model):
 
     access_key: str = Field(alias="access-key", default=None)
     secret_key: str = Field(alias="secret-key", default=None)
-
-    class Config:
-        """Model config of this pydantic model."""
-
-        allow_population_by_field_name = True
 
 
 class S3RelData(Model):
@@ -303,47 +308,41 @@ class S3RelData(Model):
     protocol: Optional[str] = None
     storage_class: Optional[str] = Field(alias="storage-class")
     tls_ca_chain: Optional[str] = Field(alias="tls-ca-chain")
-    credentials: S3RelDataCredentials = Field(alias=S3_CREDENTIALS, default=S3RelDataCredentials())
+    credentials: S3RelDataCredentials = Field(
+        alias=S3_CREDENTIALS, default_factory=S3RelDataCredentials
+    )
 
-    class Config:
-        """Model config of this pydantic model."""
-
-        allow_population_by_field_name = True
-
-    @root_validator
-    def validate_core_fields(cls, values):  # noqa: N805
+    @model_validator(mode='after')
+    def validate_core_fields(self):
         """Validate the core fields of the S3 relation data."""
         # Do not raise an exception if we are missing all the fields:
-        if (
-            not (s3_creds := values.get("credentials"))
-            and not s3_creds.access_key
-            and not s3_creds.secret_key
-        ):
+        s3_creds = self.credentials
+        if not s3_creds or not s3_creds.access_key or not s3_creds.secret_key:
             raise ValueError("Missing fields: access_key, secret_key")
 
         # NOTE: Both bucket and endpoint must be set. If none of them are set,
         # but credentials were found, this likely means that we are validating for a
         # non cluster_manager application, which only needs credentials.
-        if values.get("bucket") and not values.get("endpoint"):
+        if self.bucket and not self.endpoint:
             raise ValueError("Missing field: endpoint")
-        if values.get("endpoint") and not values.get("bucket"):
+        if self.endpoint and not self.bucket:
             raise ValueError("Missing field: bucket")
 
-        return values
+        return self
 
-    @validator(S3_CREDENTIALS, check_fields=False)
-    def ensure_secret_content(cls, conf: Dict[str, str] | S3RelDataCredentials):  # noqa: N805
+    @field_validator("credentials")
+    @classmethod
+    def ensure_secret_content(cls, conf: Dict[str, str] | S3RelDataCredentials):
         """Ensure the secret content is set."""
         if not conf:
             return None
 
         data = conf
         if isinstance(conf, dict):
-            # We are
             data = S3RelDataCredentials.from_dict(conf)
 
-        for value in data.dict().values():
-            if value.startswith("secret://"):
+        for value in data.model_dump().values():
+            if value and isinstance(value, str) and value.startswith("secret://"):
                 raise ValueError(f"The secret content must be passed, received {value} instead")
         return data
 
@@ -358,7 +357,7 @@ class S3RelData(Model):
         return "https"
 
     @classmethod
-    def from_relation(cls, input_dict: Optional[Dict[str, Any]]):
+    def from_relation(cls, input_dict: Optional[Dict[str, Any]]) -> Self:
         """Create a new instance of this class from a json/dict repr.
 
         This method creates a nested S3RelDataCredentials object from the input dict.
@@ -369,7 +368,7 @@ class S3RelData(Model):
         creds = S3RelDataCredentials(**input_dict)
         protocol = S3RelData.get_endpoint_protocol(input_dict.get("endpoint"))
         return cls.from_dict(
-            dict(input_dict) | {"protocol": protocol, S3_CREDENTIALS: creds.dict()}
+            dict(input_dict) | {"protocol": protocol, S3_CREDENTIALS: creds.model_dump()}
         )
 
 
@@ -378,11 +377,6 @@ class AzureRelDataCredentials(Model):
 
     storage_account: str = Field(alias="storage-account", default=None)
     secret_key: str = Field(alias="secret-key", default=None)
-
-    class Config:
-        """Model config of this pydantic model."""
-
-        allow_population_by_field_name = True
 
 
 class AzureRelData(Model):
@@ -397,28 +391,21 @@ class AzureRelData(Model):
     base_path: Optional[str] = Field(alias="path", default=AZURE_REPO_BASE_PATH)
     connection_protocol: Optional[str] = Field(alias="connection-protocol", default=None)
     credentials: AzureRelDataCredentials = Field(
-        alias=AZURE_CREDENTIALS, default=AzureRelDataCredentials()
+        alias=AZURE_CREDENTIALS, default_factory=AzureRelDataCredentials
     )
 
-    class Config:
-        """Model config of this pydantic model."""
-
-        allow_population_by_field_name = True
-
-    @root_validator
-    def validate_core_fields(cls, values):  # noqa: N805
+    @model_validator(mode='after')
+    def validate_core_fields(self):
         """Validate the core fields of the azure relation data."""
-        if (
-            not (creds := values.get("credentials"))
-            and not creds.storage_account
-            and not creds.secret_key
-        ):
+        creds = self.credentials
+        if not creds or not creds.storage_account or not creds.secret_key:
             raise ValueError("Missing fields: storage_account, secret_key")
 
-        return values
+        return self
 
-    @validator(AZURE_CREDENTIALS, check_fields=False)
-    def ensure_secret_content(cls, conf: Dict[str, str] | AzureRelDataCredentials):  # noqa: N805
+    @field_validator("credentials")
+    @classmethod
+    def ensure_secret_content(cls, conf: Dict[str, str] | AzureRelDataCredentials):
         """Ensure the secret content is set."""
         if not conf:
             return None
@@ -427,13 +414,13 @@ class AzureRelData(Model):
         if isinstance(conf, dict):
             data = AzureRelDataCredentials.from_dict(conf)
 
-        for value in data.dict().values():
-            if value.startswith("secret://"):
+        for value in data.model_dump().values():
+            if value and isinstance(value, str) and value.startswith("secret://"):
                 raise ValueError(f"The secret content must be passed, received {value} instead")
         return data
 
     @classmethod
-    def from_relation(cls, input_dict: Optional[Dict[str, Any]]):
+    def from_relation(cls, input_dict: Optional[Dict[str, Any]]) -> Self:
         """Create a new instance of this class from a json/dict repr.
 
         This method creates a nested AzureRelDataCredentials object from the input dict.
@@ -442,7 +429,7 @@ class AzureRelData(Model):
             return cls()
 
         creds = AzureRelDataCredentials(**input_dict)
-        return cls.from_dict(dict(input_dict) | {AZURE_CREDENTIALS: creds.dict()})
+        return cls.from_dict(dict(input_dict) | {AZURE_CREDENTIALS: creds.model_dump()})
 
 
 class PeerClusterRelDataCredentials(Model):
@@ -470,16 +457,21 @@ class PeerClusterApp(Model):
 
 class PeerClusterFleetApps(Model):
     """Model class for all applications in a large deployment as a dict."""
-
-    __root__: Dict[str, PeerClusterApp]
+    
+    model_config = {
+        "populate_by_name": True,
+        "root_model": True,
+    }
+    
+    root: Dict[str, PeerClusterApp]
 
     def __iter__(self):
         """Implements the iter magic method."""
-        return iter(self.__root__)
+        return iter(self.root)
 
     def __getitem__(self, item):
         """Implements the getitem magic method."""
-        return self.__root__[item]
+        return self.root[item]
 
 
 class PeerClusterRelData(Model):
@@ -533,31 +525,31 @@ class OpenSearchPerfProfile(Model):
 
     typ: PerformanceType
     heap_size_in_kb: int = MIN_HEAP_SIZE
-    opensearch_yml: Dict[str, str] = {}
-    charmed_index_template: Dict[str, str] = {}
-    charmed_component_templates: Dict[str, str] = {}
+    opensearch_yml: Dict[str, str] = Field(default_factory=dict)
+    charmed_index_template: Dict[str, str] = Field(default_factory=dict)
+    charmed_component_templates: Dict[str, str] = Field(default_factory=dict)
 
-    @root_validator
-    def set_options(cls, values):  # noqa: N805
+    @model_validator(mode='after')
+    def set_options(self):
         """Generate the attributes depending on the input."""
         # Check if PerformanceType has been rendered correctly
         # if an user creates the OpenSearchPerfProfile
-        if "typ" not in values:
+        if not hasattr(self, "typ"):
             raise AttributeError("Missing 'typ' attribute.")
 
-        if values["typ"] == PerformanceType.TESTING:
-            values["heap_size_in_kb"] = MIN_HEAP_SIZE
-            return values
+        if self.typ == PerformanceType.TESTING:
+            self.heap_size_in_kb = MIN_HEAP_SIZE
+            return self
 
         mem_total = OpenSearchPerfProfile.meminfo()["MemTotal"]
-        mem_percent = 0.50 if values["typ"] == PerformanceType.PRODUCTION else 0.25
+        mem_percent = 0.50 if self.typ == PerformanceType.PRODUCTION else 0.25
 
-        values["heap_size_in_kb"] = min(int(mem_percent * mem_total), MAX_HEAP_SIZE)
+        self.heap_size_in_kb = min(int(mem_percent * mem_total), MAX_HEAP_SIZE)
 
-        if values["typ"] != PerformanceType.TESTING:
-            values["opensearch_yml"] = {"indices.memory.index_buffer_size": "25%"}
+        if self.typ != PerformanceType.TESTING:
+            self.opensearch_yml = {"indices.memory.index_buffer_size": "25%"}
 
-            values["charmed_index_template"] = {
+            self.charmed_index_template = {
                 "charmed-index-tpl": {
                     "index_patterns": ["*"],
                     "template": {
@@ -568,7 +560,7 @@ class OpenSearchPerfProfile(Model):
                 },
             }
 
-        return values
+        return self
 
     @staticmethod
     def meminfo() -> dict[str, float]:

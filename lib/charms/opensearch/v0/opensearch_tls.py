@@ -80,9 +80,9 @@ class OpenSearchTLS(Object):
         super().__init__(charm, "tls-component")
 
         self.charm = charm
-        self.peer_relation = peer_relation
         self.jdk_path = jdk_path
         self.certs_path = certs_path
+        self.peer_relation = peer_relation
         self.keytool = "opensearch.keytool"
         self.admin_certs = TLSCertificatesRequiresV4(
             charm=self.charm,
@@ -125,7 +125,7 @@ class OpenSearchTLS(Object):
         if not self.charm.unit.is_leader():
             logger.warning("Admin certificates are only available on the leader unit")
             return []
-        if not self.charm.opensearch_peer_cm.deployment_desc():
+        if not self.charm.opensearch_peer_cm.deployment_desc() or not self.model.get_relation(self.peer_relation):
             return []
         return [
             CertificateRequestAttributes(
@@ -138,7 +138,7 @@ class OpenSearchTLS(Object):
     def _get_unit_certificate_requests(
         self, cert_type: CertType
     ) -> List[CertificateRequestAttributes]:
-        if not self.charm.opensearch_peer_cm.deployment_desc():
+        if not self.charm.opensearch_peer_cm.deployment_desc() or not self.model.get_relation(self.peer_relation):
             return []
         sans = self._get_sans(cert_type)
         return [
