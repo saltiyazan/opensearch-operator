@@ -19,6 +19,7 @@ from ..helpers import (
     UNIT_IDS,
     get_leader_unit_ip,
     get_secret_by_label,
+    integrate_opensearch_with_tls,
 )
 from ..helpers_deployments import wait_until
 from .test_tls import TLS_CERTIFICATES_APP_NAME, TLS_STABLE_CHANNEL
@@ -85,7 +86,7 @@ async def test_build_and_deploy_active(ops_test: OpsTest) -> None:
     await wait_until(ops_test, apps=[TLS_CERTIFICATES_APP_NAME], apps_statuses=["active"])
 
     # Relate it to OpenSearch to set up TLS.
-    await ops_test.model.integrate(APP_NAME, TLS_CERTIFICATES_APP_NAME)
+    await integrate_opensearch_with_tls(ops_test, APP_NAME, TLS_CERTIFICATES_APP_NAME)
     await wait_until(
         ops_test,
         apps=[APP_NAME],
@@ -140,7 +141,7 @@ async def test_build_large_deployment(ops_test: OpsTest) -> None:
 
     # integrate TLS to all applications
     for app in [MAIN_APP, FAILOVER_APP, DATA_APP]:
-        await ops_test.model.integrate(app, TLS_CERTIFICATES_APP_NAME)
+        await integrate_opensearch_with_tls(ops_test, app, TLS_CERTIFICATES_APP_NAME)
 
     # create the peer-cluster-relation
     await ops_test.model.integrate(f"{DATA_APP}:{REL_PEER}", f"{MAIN_APP}:{REL_ORCHESTRATOR}")

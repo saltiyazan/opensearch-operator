@@ -23,6 +23,7 @@ from ..helpers import (
     get_application_unit_names,
     get_leader_unit_id,
     get_leader_unit_ip,
+    integrate_opensearch_with_tls,
     run_action,
 )
 from ..helpers_deployments import wait_until
@@ -67,7 +68,7 @@ async def test_build_and_deploy_active(ops_test: OpsTest) -> None:
     await wait_until(ops_test, apps=[TLS_CERTIFICATES_APP_NAME], apps_statuses=["active"])
 
     # Relate it to OpenSearch to set up TLS.
-    await ops_test.model.integrate(APP_NAME, TLS_CERTIFICATES_APP_NAME)
+    await integrate_opensearch_with_tls(ops_test, APP_NAME, TLS_CERTIFICATES_APP_NAME)
     await wait_until(
         ops_test,
         apps=[APP_NAME],
@@ -220,7 +221,7 @@ async def test_tls_expiration(ops_test: OpsTest) -> None:
 
     # Relate OpenSearch to TLS and wait until all is settled
     logger.info("Integrating OpenSearch with TLS Certificates operator")
-    await ops_test.model.integrate(APP_NAME, TLS_CERTIFICATES_APP_NAME)
+    await integrate_opensearch_with_tls(ops_test, APP_NAME, TLS_CERTIFICATES_APP_NAME)
 
     await wait_until(
         ops_test,

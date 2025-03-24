@@ -32,6 +32,7 @@ from ..helpers import (
     get_application_unit_names,
     get_controller_hostname,
     get_leader_unit_ip,
+    integrate_opensearch_with_tls,
     is_up,
 )
 from ..helpers_deployments import wait_until
@@ -64,7 +65,7 @@ async def test_build_and_deploy(ops_test: OpsTest, charm) -> None:
     )
 
     # Relate it to OpenSearch to set up TLS.
-    await ops_test.model.integrate(APP_NAME, TLS_CERTIFICATES_APP_NAME)
+    await integrate_opensearch_with_tls(ops_test, APP_NAME, TLS_CERTIFICATES_APP_NAME)
     await ops_test.model.wait_for_idle(
         apps=[TLS_CERTIFICATES_APP_NAME, APP_NAME],
         status="active",

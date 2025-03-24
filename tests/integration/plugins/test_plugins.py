@@ -27,6 +27,7 @@ from ..helpers import (
     get_leader_unit_ip,
     get_secret_by_label,
     http_request,
+    integrate_opensearch_with_tls,
     is_each_unit_restarted,
     run_action,
     set_watermark,
@@ -225,7 +226,7 @@ async def test_config_switch_before_cluster_ready(ops_test: OpsTest, deploy_type
     await assert_knn_config_updated(ops_test, True, check_api=False)
 
     # Relate it to OpenSearch to set up TLS.
-    await ops_test.model.integrate(APP_NAME, TLS_CERTIFICATES_APP_NAME)
+    await integrate_opensearch_with_tls(ops_test, APP_NAME, TLS_CERTIFICATES_APP_NAME)
     await _wait_for_units(ops_test, deploy_type)
     assert len(ops_test.model.applications[APP_NAME].units) == 3
 
@@ -332,9 +333,13 @@ async def test_large_deployment_build_and_deploy(ops_test: OpsTest, deploy_type:
     )
 
     # TLS setup
-    await ops_test.model.integrate(MAIN_ORCHESTRATOR_NAME, TLS_CERTIFICATES_APP_NAME)
-    await ops_test.model.integrate(FAILOVER_ORCHESTRATOR_NAME, TLS_CERTIFICATES_APP_NAME)
-    await ops_test.model.integrate(APP_NAME, TLS_CERTIFICATES_APP_NAME)
+    await integrate_opensearch_with_tls(
+        ops_test, MAIN_ORCHESTRATOR_NAME, TLS_CERTIFICATES_APP_NAME
+    )
+    await integrate_opensearch_with_tls(
+        ops_test, FAILOVER_ORCHESTRATOR_NAME, TLS_CERTIFICATES_APP_NAME
+    )
+    await integrate_opensearch_with_tls(ops_test, APP_NAME, TLS_CERTIFICATES_APP_NAME)
 
     await _wait_for_units(ops_test, deploy_type)
     await set_watermark(ops_test, APP_NAME)

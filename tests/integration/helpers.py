@@ -14,6 +14,11 @@ from typing import Dict, List, Optional, Union
 
 import requests
 import yaml
+from charms.opensearch.v0.constants_tls import (
+    ADMIN_TLS_RELATION,
+    CLIENT_TLS_RELATION,
+    TRANSPORT_TLS_RELATION,
+)
 from charms.opensearch.v0.helper_networking import is_reachable
 from opensearchpy import OpenSearch
 from pytest_operator.plugin import OpsTest
@@ -638,3 +643,10 @@ async def is_each_unit_restarted(
                 return True
     except RetryError:
         return False
+
+
+async def integrate_opensearch_with_tls(ops_test: OpsTest, app: str, tls_app: str) -> None:
+    """Integrate an application with a TLS application."""
+    await ops_test.model.integrate(f"{app}:{ADMIN_TLS_RELATION}", tls_app)
+    await ops_test.model.integrate(f"{app}:{CLIENT_TLS_RELATION}", tls_app)
+    await ops_test.model.integrate(f"{app}:{TRANSPORT_TLS_RELATION}", tls_app)

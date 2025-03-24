@@ -16,6 +16,7 @@ from ..helpers import (
     IDLE_PERIOD,
     MODEL_CONFIG,
     SERIES,
+    integrate_opensearch_with_tls,
     run_action,
 )
 from ..helpers_deployments import get_application_units, wait_until
@@ -101,9 +102,9 @@ async def test_large_deployment_deploy_original_charm(ops_test: OpsTest) -> None
     )
 
     # TLS setup
-    await ops_test.model.integrate("main", TLS_CERTIFICATES_APP_NAME)
-    await ops_test.model.integrate("failover", TLS_CERTIFICATES_APP_NAME)
-    await ops_test.model.integrate(APP_NAME, TLS_CERTIFICATES_APP_NAME)
+    await integrate_opensearch_with_tls(ops_test, "main", TLS_CERTIFICATES_APP_NAME)
+    await integrate_opensearch_with_tls(ops_test, "failover", TLS_CERTIFICATES_APP_NAME)
+    await integrate_opensearch_with_tls(ops_test, APP_NAME, TLS_CERTIFICATES_APP_NAME)
 
     # Charms except s3-integrator should be active
     await wait_until(

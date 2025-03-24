@@ -17,6 +17,7 @@ from ..helpers import (
     MODEL_CONFIG,
     SERIES,
     get_application_unit_ids,
+    integrate_opensearch_with_tls,
 )
 from ..helpers_deployments import wait_until
 from ..tls.test_tls import TLS_CERTIFICATES_APP_NAME, TLS_STABLE_CHANNEL
@@ -61,7 +62,7 @@ async def test_build_and_deploy(ops_test: OpsTest, lxd_spaces) -> None:
         config=config,
     )
     # Relate it to OpenSearch to set up TLS.
-    await ops_test.model.integrate(APP_NAME, TLS_CERTIFICATES_APP_NAME)
+    await integrate_opensearch_with_tls(ops_test, APP_NAME, TLS_CERTIFICATES_APP_NAME)
     await wait_until(
         ops_test,
         apps=[APP_NAME],

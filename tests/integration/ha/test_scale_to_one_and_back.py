@@ -18,6 +18,7 @@ from ..helpers import (
     cluster_voting_config_exclusions,
     execute_update_status_manually,
     get_leader_unit_ip,
+    integrate_opensearch_with_tls,
     set_watermark,
 )
 from ..helpers_deployments import wait_until
@@ -61,7 +62,7 @@ async def test_build_and_deploy(ops_test: OpsTest) -> None:
     )
 
     # Relate it to OpenSearch to set up TLS.
-    await ops_test.model.integrate(APP_NAME, TLS_CERTIFICATES_APP_NAME)
+    await integrate_opensearch_with_tls(ops_test, APP_NAME, TLS_CERTIFICATES_APP_NAME)
     await ops_test.model.wait_for_idle(
         apps=[TLS_CERTIFICATES_APP_NAME, APP_NAME],
         status="active",

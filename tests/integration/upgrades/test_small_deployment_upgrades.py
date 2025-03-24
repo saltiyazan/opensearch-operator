@@ -14,6 +14,7 @@ from ..helpers import (
     IDLE_PERIOD,
     MODEL_CONFIG,
     SERIES,
+    integrate_opensearch_with_tls,
     run_action,
     set_watermark,
 )
@@ -82,7 +83,7 @@ async def _build_env(ops_test: OpsTest, version: str) -> None:
     )
 
     # Relate it to OpenSearch to set up TLS.
-    await ops_test.model.integrate(APP_NAME, TLS_CERTIFICATES_APP_NAME)
+    await integrate_opensearch_with_tls(ops_test, APP_NAME, TLS_CERTIFICATES_APP_NAME)
     await ops_test.model.wait_for_idle(
         apps=[TLS_CERTIFICATES_APP_NAME, APP_NAME],
         status="active",

@@ -8,7 +8,14 @@ import pytest
 from juju.application import Application
 from pytest_operator.plugin import OpsTest
 
-from ..helpers import APP_NAME, CONFIG_OPTS, MODEL_CONFIG, SERIES, UNIT_IDS
+from ..helpers import (
+    APP_NAME,
+    CONFIG_OPTS,
+    MODEL_CONFIG,
+    SERIES,
+    UNIT_IDS,
+    integrate_opensearch_with_tls,
+)
 from ..helpers_deployments import wait_until
 from .helpers_manual_tls import MANUAL_TLS_CERTIFICATES_APP_NAME, ManualTLSAgent
 
@@ -45,7 +52,7 @@ async def test_build_and_deploy_with_manual_tls(ops_test: OpsTest) -> None:
     logger.info("Deployed %s application", MANUAL_TLS_CERTIFICATES_APP_NAME)
 
     # Integrate it to OpenSearch to set up TLS.
-    await ops_test.model.integrate(APP_NAME, MANUAL_TLS_CERTIFICATES_APP_NAME)
+    await integrate_opensearch_with_tls(ops_test, APP_NAME, MANUAL_TLS_CERTIFICATES_APP_NAME)
     logger.info("Integrated %s with %s", APP_NAME, MANUAL_TLS_CERTIFICATES_APP_NAME)
 
     # Initialize the ManualTLSAgent to process the CSRs

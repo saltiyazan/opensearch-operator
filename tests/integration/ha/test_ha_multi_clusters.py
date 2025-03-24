@@ -16,6 +16,7 @@ from ..helpers import (
     app_name,
     get_application_unit_ids,
     get_leader_unit_ip,
+    integrate_opensearch_with_tls,
 )
 from ..helpers_deployments import wait_until
 from ..tls.test_tls import TLS_CERTIFICATES_APP_NAME, TLS_STABLE_CHANNEL
@@ -49,7 +50,7 @@ async def test_build_and_deploy(ops_test: OpsTest, charm) -> None:
     )
 
     # Relate it to OpenSearch to set up TLS.
-    await ops_test.model.integrate(APP_NAME, TLS_CERTIFICATES_APP_NAME)
+    await integrate_opensearch_with_tls(ops_test, APP_NAME, TLS_CERTIFICATES_APP_NAME)
     await ops_test.model.wait_for_idle(
         apps=[TLS_CERTIFICATES_APP_NAME, APP_NAME],
         status="active",
@@ -77,7 +78,7 @@ async def test_multi_clusters_db_isolation(
     await ops_test.model.deploy(
         charm, num_units=1, application_name=SECOND_APP_NAME, config=CONFIG_OPTS
     )
-    await ops_test.model.integrate(SECOND_APP_NAME, TLS_CERTIFICATES_APP_NAME)
+    await integrate_opensearch_with_tls(ops_test, SECOND_APP_NAME, TLS_CERTIFICATES_APP_NAME)
 
     # wait
     await wait_until(

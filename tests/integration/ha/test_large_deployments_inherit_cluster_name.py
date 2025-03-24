@@ -10,7 +10,13 @@ import pytest
 from charms.opensearch.v0.constants_charm import PClusterNoDataNode, PClusterNoRelation
 from pytest_operator.plugin import OpsTest
 
-from ..helpers import CONFIG_OPTS, MODEL_CONFIG, SERIES, get_leader_unit_ip
+from ..helpers import (
+    CONFIG_OPTS,
+    MODEL_CONFIG,
+    SERIES,
+    get_leader_unit_ip,
+    integrate_opensearch_with_tls,
+)
 from ..helpers_deployments import wait_until
 from ..tls.test_tls import TLS_CERTIFICATES_APP_NAME, TLS_STABLE_CHANNEL
 from .continuous_writes import ContinuousWrites
@@ -91,7 +97,7 @@ async def test_build_and_deploy_not_autogen(ops_test: OpsTest) -> None:
         MAIN_APP_NOT_AUTOGEN,
         INVALID_FAILOVER_APP,
     ]:
-        await ops_test.model.integrate(app, TLS_CERTIFICATES_APP_NAME)
+        await integrate_opensearch_with_tls(ops_test, app, TLS_CERTIFICATES_APP_NAME)
 
     # confirm all apps are blocked due to missing data node or waiting for relation
     await wait_until(
@@ -167,7 +173,7 @@ async def test_build_and_deploy_autogen(ops_test: OpsTest) -> None:
         FAILOVER_APP_AUTOGEN,
         DATA_APP_AUTOGEN,
     ]:
-        await ops_test.model.integrate(app, TLS_CERTIFICATES_APP_NAME)
+        await integrate_opensearch_with_tls(ops_test, app, TLS_CERTIFICATES_APP_NAME)
 
     # confirm all apps are blocked due to missing data node or waiting for relation
     await wait_until(

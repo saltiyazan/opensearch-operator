@@ -20,6 +20,7 @@ from ..helpers import (
     get_leader_unit_id,
     get_leader_unit_ip,
     http_request,
+    integrate_opensearch_with_tls,
     run_action,
 )
 from ..helpers_deployments import wait_until
@@ -91,7 +92,7 @@ async def test_create_relation(ops_test: OpsTest, application_charm, opensearch_
             config=CONFIG_OPTS,
         ),
     )
-    await ops_test.model.integrate(OPENSEARCH_APP_NAME, TLS_CERTIFICATES_APP_NAME)
+    await integrate_opensearch_with_tls(ops_test, OPENSEARCH_APP_NAME, TLS_CERTIFICATES_APP_NAME)
     await ops_test.model.wait_for_idle(
         apps=[TLS_CERTIFICATES_APP_NAME, OPENSEARCH_APP_NAME], status="active", timeout=1600
     )

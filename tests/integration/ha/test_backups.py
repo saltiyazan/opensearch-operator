@@ -46,6 +46,7 @@ from ..helpers import (
     get_leader_unit_id,
     get_leader_unit_ip,
     http_request,
+    integrate_opensearch_with_tls,
     run_action,
 )
 from ..helpers_deployments import get_application_units, wait_until
@@ -335,7 +336,7 @@ async def test_small_deployment_build_and_deploy(
     )
 
     # Relate it to OpenSearch to set up TLS.
-    await ops_test.model.integrate(APP_NAME, TLS_CERTIFICATES_APP_NAME)
+    await integrate_opensearch_with_tls(ops_test, APP_NAME, TLS_CERTIFICATES_APP_NAME)
     await ops_test.model.wait_for_idle(
         apps=[TLS_CERTIFICATES_APP_NAME, APP_NAME],
         status="active",
@@ -420,9 +421,9 @@ async def test_large_deployment_build_and_deploy(
     )
 
     # TLS setup
-    await ops_test.model.integrate("main", TLS_CERTIFICATES_APP_NAME)
-    await ops_test.model.integrate("failover", TLS_CERTIFICATES_APP_NAME)
-    await ops_test.model.integrate(APP_NAME, TLS_CERTIFICATES_APP_NAME)
+    await integrate_opensearch_with_tls(ops_test, "main", TLS_CERTIFICATES_APP_NAME)
+    await integrate_opensearch_with_tls(ops_test, "failover", TLS_CERTIFICATES_APP_NAME)
+    await integrate_opensearch_with_tls(ops_test, APP_NAME, TLS_CERTIFICATES_APP_NAME)
 
     # Charms except s3-integrator should be active
     await wait_until(
@@ -701,7 +702,7 @@ async def test_restore_to_new_cluster(
     )
 
     # Relate it to OpenSearch to set up TLS.
-    await ops_test.model.integrate(app, TLS_CERTIFICATES_APP_NAME)
+    await integrate_opensearch_with_tls(ops_test, app, TLS_CERTIFICATES_APP_NAME)
     await ops_test.model.wait_for_idle(
         apps=[TLS_CERTIFICATES_APP_NAME, app],
         status="active",
@@ -807,7 +808,7 @@ async def test_build_deploy_and_test_status(ops_test: OpsTest, charm) -> None:
     )
 
     # Relate it to OpenSearch to set up TLS.
-    await ops_test.model.integrate(APP_NAME, TLS_CERTIFICATES_APP_NAME)
+    await integrate_opensearch_with_tls(ops_test, APP_NAME, TLS_CERTIFICATES_APP_NAME)
     await ops_test.model.wait_for_idle(
         apps=[TLS_CERTIFICATES_APP_NAME, APP_NAME],
         status="active",
