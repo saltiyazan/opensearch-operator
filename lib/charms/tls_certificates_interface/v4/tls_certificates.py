@@ -407,7 +407,7 @@ class CertificateSigningRequest:
             sans = csr_object.extensions.get_extension_for_class(x509.SubjectAlternativeName).value
             sans_dns = frozenset(sans.get_values_for_type(x509.DNSName))
             sans_ip = frozenset([str(san) for san in sans.get_values_for_type(x509.IPAddress)])
-            sans_oid = frozenset([str(san) for san in sans.get_values_for_type(x509.RegisteredID)])
+            sans_oid = frozenset([san.dotted_string for san in sans.get_values_for_type(x509.RegisteredID)])
         except x509.ExtensionNotFound:
             sans = frozenset()
             sans_dns = frozenset()
