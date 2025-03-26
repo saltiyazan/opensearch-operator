@@ -264,40 +264,36 @@ class OpenSearchTLS(Object):
 
         CertificateAvailableEvents fire whenever a new certificate is created by the TLS charm.
         """
-        try:
-            scope, cert_type, secrets = self._find_secret(event.certificate_signing_request, "csr")
-            logger.debug(f"{scope.val}.{cert_type.val} TLS certificate available.")
-        except TypeError:
-            certificate_signing_request = CertificateSigningRequest.from_string(
-                event.certificate_signing_request
-            )
-            certificate_attributes = CertificateRequestAttributes.from_csr(
-                certificate_signing_request, False
-            )
-            if certificate_attributes in self._get_admin_certificate_requests():
-                scope = Scope.APP
-                cert_type = CertType.APP_ADMIN
-            elif certificate_attributes in self._get_unit_certificate_requests(
-                CertType.UNIT_TRANSPORT
-            ):
-                scope = Scope.UNIT
-                cert_type = CertType.UNIT_TRANSPORT
-            elif certificate_attributes in self._get_unit_certificate_requests(CertType.UNIT_HTTP):
-                scope = Scope.UNIT
-                cert_type = CertType.UNIT_HTTP
-            else:
-                logger.debug("Unknown certificate available.")
-                return
-            self.charm.secrets.put_object(
-                scope=scope,
-                key=cert_type.val,
-                value={
-                    "csr": str(event.certificate_signing_request),
-                    "subject": f"/O={self.charm.opensearch_peer_cm.deployment_desc().config.cluster_name}/CN={certificate_attributes.common_name}",
-                },
-                merge=True,
-            )
-            _, __, secrets = self._find_secret(event.certificate_signing_request, "csr")
+        certificate_signing_request = CertificateSigningRequest.from_string(
+            str(event.certificate_signing_request)
+        )
+        certificate_attributes = CertificateRequestAttributes.from_csr(
+            certificate_signing_request, False
+        )
+        if certificate_attributes in self._get_admin_certificate_requests():
+            scope = Scope.APP
+            cert_type = CertType.APP_ADMIN
+        elif certificate_attributes in self._get_unit_certificate_requests(
+            CertType.UNIT_TRANSPORT
+        ):
+            scope = Scope.UNIT
+            cert_type = CertType.UNIT_TRANSPORT
+        elif certificate_attributes in self._get_unit_certificate_requests(CertType.UNIT_HTTP):
+            scope = Scope.UNIT
+            cert_type = CertType.UNIT_HTTP
+        else:
+            logger.debug("Unknown certificate available.")
+            return
+        self.charm.secrets.put_object(
+            scope=scope,
+            key=cert_type.val,
+            value={
+                "csr": str(event.certificate_signing_request),
+                "subject": f"/O={self.charm.opensearch_peer_cm.deployment_desc().config.cluster_name}/CN={certificate_attributes.common_name}",
+            },
+            merge=True,
+        )
+        secrets = self.charm.secrets.get_object(scope, cert_type.val, peek=True)
 
         # seems like the admin certificate is also broadcast to non leader units on refresh request
         if not self.charm.unit.is_leader() and scope == Scope.APP:
@@ -329,7 +325,7 @@ class OpenSearchTLS(Object):
             )
 
         current_stored_ca = self.read_stored_ca()
-        if current_stored_ca != event.ca:
+        if current_stored_ca != str(event.ca):
             if not self.store_new_ca(
                 self.charm.secrets.get_object(scope, cert_type.val, peek=True)
             ):
