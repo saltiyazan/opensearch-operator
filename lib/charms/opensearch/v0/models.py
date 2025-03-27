@@ -445,10 +445,10 @@ class PeerClusterRelDataCredentials(Model):
     admin_password_hash: str
     kibana_password: str
     kibana_password_hash: str
-    monitor_password: Optional[str]
-    admin_tls: Optional[Dict[str, Optional[str]]]
-    s3: Optional[S3RelDataCredentials]
-    azure: Optional[AzureRelDataCredentials]
+    monitor_password: Optional[str] = None
+    admin_tls: Optional[Dict[str, Optional[str]]] = None
+    s3: Optional[S3RelDataCredentials] = None
+    azure: Optional[AzureRelDataCredentials] = None
 
 
 class PeerClusterApp(Model):
@@ -485,29 +485,28 @@ class PeerClusterRelData(Model):
     cluster_name: str
     cm_nodes: List[Node]
     credentials: PeerClusterRelDataCredentials
-    deployment_desc: Optional[DeploymentDescription]
+    deployment_desc: Optional[DeploymentDescription] = None
     security_index_initialised: bool = False
 
 
 class PeerClusterRelErrorData(Model):
     """Model class for the PCluster relation data."""
 
-    cluster_name: Optional[str]
+    cluster_name: Optional[str] = None
     should_sever_relation: bool
     should_wait: bool
     blocked_message: str
-    deployment_desc: Optional[DeploymentDescription]
+    deployment_desc: Optional[DeploymentDescription] = None
 
 
 class PeerClusterOrchestrators(Model):
     """Model class for the PClusters registered main/failover clusters."""
-
     _TYPES = Literal["main", "failover"]
 
     main_rel_id: int = -1
-    main_app: Optional[App]
+    main_app: Optional[App] = None
     failover_rel_id: int = -1
-    failover_app: Optional[App]
+    failover_app: Optional[App] = None
 
     def delete(self, typ: _TYPES) -> None:
         """Delete an orchestrator from the current pair."""
