@@ -23,6 +23,7 @@ import typing
 from os.path import exists
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
+import uuid
 
 from charms.opensearch.v0.constants_charm import (
     PeerClusterOrchestratorRelationName,
@@ -152,7 +153,7 @@ class OpenSearchTLS(Object):
         sans = self._get_sans(cert_type)
         return [
             CertificateRequestAttributes(
-                common_name=self._get_subject(cert_type),
+                common_name=self._get_common_name(cert_type),
                 organization=self.charm.opensearch_peer_cm.deployment_desc().config.cluster_name,
                 sans_oid=frozenset(sans.get("sans_oid")),
                 sans_dns=frozenset(sans.get("sans_dns")),
@@ -289,7 +290,7 @@ class OpenSearchTLS(Object):
             key=cert_type.val,
             value={
                 "csr": str(event.certificate_signing_request),
-                "subject": f"/O={self.charm.opensearch_peer_cm.deployment_desc().config.cluster_name}/CN={certificate_attributes.common_name}",
+                "subject": self._get_subject(cert_type),
             },
             merge=True,
         )
@@ -424,14 +425,27 @@ class OpenSearchTLS(Object):
 
         return sans
 
-    def _get_subject(self, cert_type: CertType) -> str:
-        """Get subject of the certificate."""
+    def _get_common_name(self, cert_type: CertType) -> str:
+        """Get common name of the certificate."""
         if cert_type == CertType.APP_ADMIN:
             cn = "admin"
         else:
             cn = self.charm.unit_ip
 
         return cn
+
+    def _get_subject(self, cert_type: CertType) -> str:
+        """Get subject string for the certificate."""
+        cluster_name = self.charm.opensearch_peer_cm.deployment_desc().config.cluster_name
+        common_name = self._get_common_name(cert_type)
+
+        if cert_type == CertType.APP_ADMIN:
+            sans = self._get_sans(cert_type)
+            oid = sans["sans_oid"][0] if sans.get("sans_oid") else None
+            if oid:
+                return f"O={cluster_name},OID.2.5.4.45={oid},CN={common_name}"
+
+        return f"O={cluster_name},CN={common_name}"
 
     @staticmethod
     def _parse_tls_file(raw_content: str) -> bytes:
