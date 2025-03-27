@@ -23,7 +23,6 @@ import typing
 from os.path import exists
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
-import uuid
 
 from charms.opensearch.v0.constants_charm import (
     PeerClusterOrchestratorRelationName,
@@ -140,6 +139,7 @@ class OpenSearchTLS(Object):
                 common_name="admin",
                 organization=self.charm.opensearch_peer_cm.deployment_desc().config.cluster_name,
                 sans_oid=frozenset(self._get_sans(CertType.APP_ADMIN).get("sans_oid")),
+                add_unique_id_to_subject_name=False,
             )
         ]
 
@@ -158,6 +158,7 @@ class OpenSearchTLS(Object):
                 sans_oid=frozenset(sans.get("sans_oid")),
                 sans_dns=frozenset(sans.get("sans_dns")),
                 sans_ip=frozenset(sans.get("sans_ip")),
+                add_unique_id_to_subject_name=False,
             )
         ]
 
@@ -274,14 +275,17 @@ class OpenSearchTLS(Object):
         if certificate_attributes in self._get_admin_certificate_requests():
             scope = Scope.APP
             cert_type = CertType.APP_ADMIN
+            _, pk = self.admin_certs.get_assigned_certificate(certificate_attributes)
         elif certificate_attributes in self._get_unit_certificate_requests(
             CertType.UNIT_TRANSPORT
         ):
             scope = Scope.UNIT
             cert_type = CertType.UNIT_TRANSPORT
+            _, pk = self.transport_certs.get_assigned_certificate(certificate_attributes)
         elif certificate_attributes in self._get_unit_certificate_requests(CertType.UNIT_HTTP):
             scope = Scope.UNIT
             cert_type = CertType.UNIT_HTTP
+            _, pk = self.client_certs.get_assigned_certificate(certificate_attributes)
         else:
             logger.debug("Unknown certificate available.")
             return
@@ -289,8 +293,9 @@ class OpenSearchTLS(Object):
             scope=scope,
             key=cert_type.val,
             value={
+                "key": str(pk),
                 "csr": str(event.certificate_signing_request),
-                "subject": self._get_subject(cert_type),
+                "subject": f"/O={self.charm.opensearch_peer_cm.deployment_desc().config.cluster_name}/CN={certificate_attributes.common_name}",
             },
             merge=True,
         )

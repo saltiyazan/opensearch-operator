@@ -501,6 +501,7 @@ class PeerClusterRelErrorData(Model):
 
 class PeerClusterOrchestrators(Model):
     """Model class for the PClusters registered main/failover clusters."""
+
     _TYPES = Literal["main", "failover"]
 
     main_rel_id: int = -1
