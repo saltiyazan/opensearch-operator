@@ -32,6 +32,7 @@ from charms.opensearch.v0.models import (
     State,
 )
 from charms.opensearch.v0.opensearch_internal_data import Scope
+from charms.tls_certificates_interface.v4.tls_certificates import PrivateKey
 from ops.model import ActiveStatus, MaintenanceStatus
 from ops.testing import Harness
 from parameterized import parameterized
@@ -280,6 +281,7 @@ class TestOpenSearchTLS(unittest.TestCase):
         self.charm.tls._on_regenerate_tls_private_key(event_mock)
         _regenerate_private_key.assert_called()
 
+    @patch("charms.opensearch.v0.opensearch_tls.tempfile.NamedTemporaryFile")
     @patch("opensearch.OpenSearchSnap.write_file")
     @patch("charms.opensearch.v0.opensearch_tls.OpenSearchTLS._create_keystore_pwd_if_not_exists")
     @patch("charm.OpenSearchOperatorCharm._put_or_update_internal_user_leader")
@@ -292,8 +294,12 @@ class TestOpenSearchTLS(unittest.TestCase):
     @patch(
         "charms.tls_certificates_interface.v4.tls_certificates.CertificateRequestAttributes.from_csr"
     )
+    @patch(
+        "charms.tls_certificates_interface.v4.tls_certificates.TLSCertificatesRequiresV4.get_assigned_certificate"
+    )
     def test_on_certificate_available_admin_cert(
         self,
+        get_assigned_certificate,
         certificate_request_attributes_from_csr,
         certificate_signing_request_from_string,
         deployment_desc,
@@ -302,6 +308,7 @@ class TestOpenSearchTLS(unittest.TestCase):
         _,
         __,
         ___,
+        _____,
     ):
         """Test _on_certificate_available event for the admin certificate."""
         org = "test-org"
@@ -339,11 +346,16 @@ class TestOpenSearchTLS(unittest.TestCase):
         event_mock = MagicMock(
             certificate_signing_request=csr, chain=chain, certificate=cert, ca=ca
         )
+        get_assigned_certificate.return_value = (
+            Mock(),
+            PrivateKey("key"),
+        )
         self.charm.tls._on_certificate_available(event_mock)
 
         self.assertDictEqual(
             self.secret_store.get_object(Scope.APP, secret_key),
             {
+                "key": "key",
                 "chain": chain[0],
                 "cert": cert,
                 "ca-cert": ca,
@@ -356,6 +368,7 @@ class TestOpenSearchTLS(unittest.TestCase):
         store_new_ca.assert_called()
         on_tls_conf_set.assert_called()
 
+    @patch("charms.opensearch.v0.opensearch_tls.tempfile.NamedTemporaryFile")
     @patch("charms.opensearch.v0.opensearch_tls.OpenSearchTLS._create_keystore_pwd_if_not_exists")
     @patch("charm.OpenSearchOperatorCharm._put_or_update_internal_user_leader")
     @patch("charms.opensearch.v0.opensearch_tls.OpenSearchTLS.store_new_ca")
@@ -366,16 +379,21 @@ class TestOpenSearchTLS(unittest.TestCase):
     @patch(
         "charms.tls_certificates_interface.v4.tls_certificates.CertificateRequestAttributes.from_csr"
     )
+    @patch(
+        "charms.tls_certificates_interface.v4.tls_certificates.TLSCertificatesRequiresV4.get_assigned_certificate"
+    )
     @patch(f"{PEER_CLUSTERS_MANAGER}.deployment_desc")
     def test_on_certificate_available_unit_cert_admin_cert_not_available(
         self,
         deployment_desc,
+        get_assigned_certificate,
         certificate_request_attributes_from_csr,
         certificate_signing_request_from_string,
         on_tls_conf_set,
         store_new_ca,
         _,
         __,
+        ___,
     ):
         """Test _on_certificate_available event for the unit certificate.
 
@@ -413,11 +431,16 @@ class TestOpenSearchTLS(unittest.TestCase):
         event_mock = MagicMock(
             certificate_signing_request=csr, chain=chain, certificate=cert, ca=ca
         )
+        get_assigned_certificate.return_value = (
+            Mock(),
+            PrivateKey("key"),
+        )
         self.charm.tls._on_certificate_available(event_mock)
 
         self.assertDictEqual(
             self.secret_store.get_object(Scope.UNIT, secret_key),
             {
+                "key": "key",
                 "chain": chain[0],
                 "cert": cert,
                 "ca-cert": ca,
@@ -430,6 +453,7 @@ class TestOpenSearchTLS(unittest.TestCase):
         store_new_ca.assert_called()
         on_tls_conf_set.assert_not_called()
 
+    @patch("charms.opensearch.v0.opensearch_tls.tempfile.NamedTemporaryFile")
     @patch("charms.opensearch.v0.opensearch_tls.OpenSearchTLS._create_keystore_pwd_if_not_exists")
     @patch("charm.OpenSearchOperatorCharm._put_or_update_internal_user_leader")
     @patch("charms.opensearch.v0.opensearch_tls.OpenSearchTLS.store_new_ca")
@@ -440,16 +464,21 @@ class TestOpenSearchTLS(unittest.TestCase):
     @patch(
         "charms.tls_certificates_interface.v4.tls_certificates.CertificateRequestAttributes.from_csr"
     )
+    @patch(
+        "charms.tls_certificates_interface.v4.tls_certificates.TLSCertificatesRequiresV4.get_assigned_certificate"
+    )
     @patch(f"{PEER_CLUSTERS_MANAGER}.deployment_desc")
     def test_on_certificate_available_unit_cert_admin_cert_available(
         self,
         deployment_desc,
+        get_assigned_certificate,
         certificate_request_attributes_from_csr,
         certificate_signing_request_from_string,
         on_tls_conf_set,
         store_new_ca,
         _,
         __,
+        ____,
     ):
         """Test _on_certificate_available event for the unit certificate.
 
@@ -470,6 +499,10 @@ class TestOpenSearchTLS(unittest.TestCase):
         certificate_signing_request_from_string.return_value = Mock()
         certificate_request_attributes_from_csr.return_value = (
             self.harness.charm.tls._get_unit_certificate_requests(CertType.UNIT_TRANSPORT)[0]
+        )
+        get_assigned_certificate.return_value = (
+            Mock(),
+            PrivateKey("key"),
         )
         cert = "cert_12345"
         chain = ["chain_12345"]
@@ -500,6 +533,7 @@ class TestOpenSearchTLS(unittest.TestCase):
         self.assertDictEqual(
             self.secret_store.get_object(Scope.UNIT, secret_key),
             {
+                "key": "key",
                 "chain": chain[0],
                 "cert": cert,
                 "ca-cert": ca,
@@ -581,12 +615,16 @@ class TestOpenSearchTLS(unittest.TestCase):
     @patch(
         "charms.tls_certificates_interface.v4.tls_certificates.CertificateRequestAttributes.from_csr"
     )
+    @patch(
+        "charms.tls_certificates_interface.v4.tls_certificates.TLSCertificatesRequiresV4.get_assigned_certificate"
+    )
     @patch("builtins.open", side_effect=unittest.mock.mock_open())
     def test_on_certificate_available_leader_app_cert_full_workflow(
         self,
         # NOTE: Syntax: parametrized parameter comes first
         deployment_type,
         _,
+        get_assigned_certificate,
         certificate_request_attributes_from_csr,
         certificate_signing_request_from_string,
         read_stored_ca,
@@ -636,6 +674,10 @@ class TestOpenSearchTLS(unittest.TestCase):
                 "keystore-password": "keystore_12345",
                 "truststore-password": "truststore_12345",
             },
+        )
+        get_assigned_certificate.return_value = (
+            Mock(),
+            PrivateKey(key),
         )
         # Purposefully not adding unit certificates, to also trigger corner-case checks
 
@@ -712,6 +754,9 @@ class TestOpenSearchTLS(unittest.TestCase):
     @patch(
         "charms.tls_certificates_interface.v4.tls_certificates.CertificateRequestAttributes.from_csr"
     )
+    @patch(
+        "charms.tls_certificates_interface.v4.tls_certificates.TLSCertificatesRequiresV4.get_assigned_certificate"
+    )
     @patch("builtins.open", side_effect=unittest.mock.mock_open())
     def test_on_certificate_available_any_node_unit_cert_full_workflow(
         self,
@@ -720,6 +765,7 @@ class TestOpenSearchTLS(unittest.TestCase):
         leader,
         cert_type,
         _,
+        get_assigned_certificate,
         certificate_request_attributes_from_csr,
         certificate_signing_request_from_string,
         get_host_public_ip,
@@ -756,6 +802,10 @@ class TestOpenSearchTLS(unittest.TestCase):
         )
         key = "key"
         ca = "ca"
+        get_assigned_certificate.return_value = (
+            Mock(),
+            PrivateKey(key),
+        )
         keystore_password = "keystore_12345"
 
         new_cert = "new_cert"
@@ -870,6 +920,9 @@ class TestOpenSearchTLS(unittest.TestCase):
     @patch(
         "charms.tls_certificates_interface.v4.tls_certificates.CertificateRequestAttributes.from_csr"
     )
+    @patch(
+        "charms.tls_certificates_interface.v4.tls_certificates.TLSCertificatesRequiresV4.get_assigned_certificate"
+    )
     # Mocks to avoid I/O
     @patch("builtins.open", side_effect=unittest.mock.mock_open())
     def test_on_certificate_available_ca_rotation_first_stage_any_cluster_leader(
@@ -877,6 +930,7 @@ class TestOpenSearchTLS(unittest.TestCase):
         # NOTE: Syntax: parametrized parameter comes first
         deployment_type,
         _,
+        get_assigned_certificate,
         certificate_request_attributes_from_csr,
         certificate_signing_request_from_string,
         deployment_desc,
@@ -926,6 +980,10 @@ class TestOpenSearchTLS(unittest.TestCase):
         certificate_signing_request_from_string.return_value = Mock()
         certificate_request_attributes_from_csr.return_value = (
             self.harness.charm.tls._get_admin_certificate_requests()[0]
+        )
+        get_assigned_certificate.return_value = (
+            Mock(),
+            PrivateKey("key"),
         )
 
         new_cert = "new_cert"
@@ -990,6 +1048,7 @@ class TestOpenSearchTLS(unittest.TestCase):
         # The new certificate is now replacing the old one in Peer Relation secrets
         # NOTE: INCONSISTENCY: The new cert and chain ARE saved into the secret
         assert self.secret_store.get_object(Scope.APP, CertType.APP_ADMIN.val) == {
+            "key": "key",
             "cert": new_cert,
             "csr": "old_csr",
             "chain": new_chain[0],
@@ -1339,12 +1398,16 @@ class TestOpenSearchTLS(unittest.TestCase):
     @patch(f"{PEER_CLUSTERS_MANAGER}.deployment_desc")
     # Mocks to avoid I/O
     @patch("charms.opensearch.v0.opensearch_tls.OpenSearchTLS.read_stored_ca")
+    @patch(
+        "charms.tls_certificates_interface.v4.tls_certificates.TLSCertificatesRequiresV4.get_assigned_certificate"
+    )
     @patch("builtins.open", side_effect=unittest.mock.mock_open())
     def test_on_certificate_available_ca_rotation_third_stage_leader_cert_app(
         self,
         # NOTE: Syntax: parametrized parameter comes first
         deployment_type,
         _,
+        get_assigned_certificate,
         read_stored_ca,
         deployment_desc,
         run_cmd,
@@ -1393,6 +1456,10 @@ class TestOpenSearchTLS(unittest.TestCase):
                 "ca-cert": ca,
                 "key": key,
             },
+        )
+        get_assigned_certificate.return_value = (
+            Mock(),
+            PrivateKey(key),
         )
 
         event_mock = MagicMock(
@@ -1688,6 +1755,9 @@ class TestOpenSearchTLS(unittest.TestCase):
     @patch(
         "charms.tls_certificates_interface.v4.tls_certificates.CertificateRequestAttributes.from_csr"
     )
+    @patch(
+        "charms.tls_certificates_interface.v4.tls_certificates.TLSCertificatesRequiresV4.get_assigned_certificate"
+    )
     @patch("builtins.open", side_effect=unittest.mock.mock_open())
     def test_on_certificate_available_rotation_ongoing_on_this_unit(
         # NOTE: Syntax: parametrized parameter comes first
@@ -1695,6 +1765,7 @@ class TestOpenSearchTLS(unittest.TestCase):
         deployment_type,
         leader,
         _,
+        get_assigned_certificate,
         certificate_request_attributes_from_csr,
         certificate_signing_request_from_string,
         read_stored_ca,
@@ -1731,6 +1802,10 @@ class TestOpenSearchTLS(unittest.TestCase):
                 "ca-cert": "old_ca_cert",
                 "cert": "old_cert",
             },
+        )
+        get_assigned_certificate.return_value = (
+            Mock(),
+            PrivateKey("key"),
         )
 
         read_stored_ca.return_value = "stored_ca"
@@ -1775,6 +1850,7 @@ class TestOpenSearchTLS(unittest.TestCase):
                 "Applying new CA certificate..."
             )
             assert self.secret_store.get_object(Scope.APP, CertType.APP_ADMIN.val) == {
+                "key": "key",
                 "chain": "new_chain",
                 "keystore-password": "keystore_12345",
                 "truststore-password": "truststore_12345",
@@ -1818,6 +1894,9 @@ class TestOpenSearchTLS(unittest.TestCase):
     @patch(f"{PEER_CLUSTERS_MANAGER}.deployment_desc")
     # Mock to avoid I/O
     @patch("charms.opensearch.v0.opensearch_tls.OpenSearchTLS.read_stored_ca")
+    @patch(
+        "charms.tls_certificates_interface.v4.tls_certificates.TLSCertificatesRequiresV4.get_assigned_certificate"
+    )
     @patch("builtins.open", side_effect=unittest.mock.mock_open())
     def test_on_certificate_available_rotation_ongoing_on_another_unit(
         # NOTE: Syntax: parametrized parameter comes first
@@ -1825,6 +1904,7 @@ class TestOpenSearchTLS(unittest.TestCase):
         deployment_type,
         leader,
         _,
+        get_assigned_certificate,
         read_stored_ca,
         deployment_desc,
         run_cmd,
@@ -1877,6 +1957,10 @@ class TestOpenSearchTLS(unittest.TestCase):
                 "cert": "old_cert",
             },
         )
+        get_assigned_certificate.return_value = (
+            Mock(),
+            PrivateKey("key"),
+        )
 
         read_stored_ca.return_value = "stored_ca"
 
@@ -1906,6 +1990,7 @@ class TestOpenSearchTLS(unittest.TestCase):
             )
             assert self.secret_store.get_object(Scope.APP, CertType.APP_ADMIN.val) == {
                 "chain": "new_chain",
+                "key": "key",
                 "keystore-password": "keystore_12345",
                 "truststore-password": "truststore_12345",
                 "ca-cert": "new_ca",
