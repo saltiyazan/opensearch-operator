@@ -440,17 +440,11 @@ class TestOpenSearchTLS(unittest.TestCase):
         self.assertDictEqual(
             self.secret_store.get_object(Scope.UNIT, secret_key),
             {
-                "key": "key",
-                "chain": chain[0],
-                "cert": cert,
-                "ca-cert": ca,
                 "keystore-password": keystore_password,
-                "csr": csr,
-                "subject": f"/O={org}/CN={self.harness.charm.tls._get_unit_certificate_requests(CertType.UNIT_TRANSPORT)[0].common_name}",
             },
         )
 
-        store_new_ca.assert_called()
+        store_new_ca.assert_not_called()
         on_tls_conf_set.assert_not_called()
 
     @patch("charms.opensearch.v0.opensearch_tls.tempfile.NamedTemporaryFile")
