@@ -276,16 +276,37 @@ class OpenSearchTLS(Object):
             scope = Scope.APP
             cert_type = CertType.APP_ADMIN
             _, pk = self.admin_certs.get_assigned_certificate(certificate_attributes)
+            logger.info(
+                "=====  Debugging the PR: Checking attributes in _on_certificate_available ====="
+            )
+            logger.info("attributes: %s", certificate_attributes)
+            logger.info("scope: %s", scope)
+            logger.info("cert_type: %s", cert_type)
+            logger.info("=====  Debugging the PR =====")
         elif certificate_attributes in self._get_unit_certificate_requests(
             CertType.UNIT_TRANSPORT
         ):
             scope = Scope.UNIT
             cert_type = CertType.UNIT_TRANSPORT
             _, pk = self.transport_certs.get_assigned_certificate(certificate_attributes)
+            logger.info(
+                "=====  Debugging the PR: Checking attributes in _on_certificate_available ====="
+            )
+            logger.info("attributes: %s", certificate_attributes)
+            logger.info("scope: %s", scope)
+            logger.info("cert_type: %s", cert_type)
+            logger.info("=====  Debugging the PR =====")
         elif certificate_attributes in self._get_unit_certificate_requests(CertType.UNIT_HTTP):
             scope = Scope.UNIT
             cert_type = CertType.UNIT_HTTP
             _, pk = self.client_certs.get_assigned_certificate(certificate_attributes)
+            logger.info(
+                "=====  Debugging the PR: Checking attributes in _on_certificate_available ====="
+            )
+            logger.info("attributes: %s", certificate_attributes)
+            logger.info("scope: %s", scope)
+            logger.info("cert_type: %s", cert_type)
+            logger.info("=====  Debugging the PR =====")
         else:
             logger.debug("Unknown certificate available.")
             return
@@ -300,6 +321,7 @@ class OpenSearchTLS(Object):
                 event.defer()
                 return
 
+        logger.info("=====  Debugging the PR: Putting object in _on_certificate_available =====")
         self.charm.secrets.put_object(
             scope=scope,
             key=cert_type.val,
@@ -310,7 +332,11 @@ class OpenSearchTLS(Object):
             },
             merge=True,
         )
+        logger.info("=====  Debugging the PR =====")
+        logger.info("=====  Debugging the PR: Getting object in _on_certificate_available =====")
         secrets = self.charm.secrets.get_object(scope, cert_type.val, peek=True)
+        logger.info("=====  Debugging the PR: Secrets: %s", secrets)
+        logger.info("=====  Debugging the PR: Getting object in _on_certificate_available =====")
 
         # seems like the admin certificate is also broadcast to non leader units on refresh request
         if not self.charm.unit.is_leader() and scope == Scope.APP:
