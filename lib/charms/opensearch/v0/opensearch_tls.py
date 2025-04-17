@@ -435,7 +435,7 @@ class OpenSearchTLS(Object):
         if cert_type == CertType.APP_ADMIN:
             return sans
 
-        dns = {self.charm.unit_name, socket.gethostname(), socket.getfqdn()}
+        dns = {self.charm.unit_name, socket.gethostname(), socket.getfqdn(), cert_type.val}
         ips = {self.charm.unit_ip}
 
         host_public_ip = get_host_public_ip()
