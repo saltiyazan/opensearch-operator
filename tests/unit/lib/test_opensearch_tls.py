@@ -131,7 +131,12 @@ class TestOpenSearchTLS(unittest.TestCase):
 
         base_ips = ["1.1.1.1", "address1", "address2"]
         base_dns_entries_http = [self.charm.unit_name, "nebula", "alias", CertType.UNIT_HTTP.val]
-        base_dns_entries_transport = [self.charm.unit_name, "nebula", "alias", CertType.UNIT_TRANSPORT.val]
+        base_dns_entries_transport = [
+            self.charm.unit_name,
+            "nebula",
+            "alias",
+            CertType.UNIT_TRANSPORT.val,
+        ]
 
         unit_http_sans = self.charm.tls._get_sans(CertType.UNIT_HTTP)
         self.assertDictEqual(
