@@ -771,6 +771,11 @@ class OpenSearchTLS(Object):
         # compare issuer of the cert with the issuer of the CA
         # if they don't match, certs are not up-to-date and need to be renewed after CA rotation
         if not (current_ca := self.read_stored_ca()):
+            logger.info(
+                "=====  Debugging the PR, if we see this then tls is not yet fully configured ====="
+            )
+            logger.info(f"current_ca: {current_ca}")
+            logger.info("=====  Debugging the PR =====")
             return False
 
         # to make sure the content is processed correctly by openssl, temporary store it in a file
@@ -783,12 +788,22 @@ class OpenSearchTLS(Object):
             ca_issuer = run_cmd(f"openssl x509 -in {tmp_ca_file.name} -noout -issuer").out
         except OpenSearchCmdError as e:
             logger.error(f"Error reading the current truststore: {e}")
+            logger.info(
+                "=====  Debugging the PR, if we see this then tls is not yet fully configured ====="
+            )
+            logger.info(f"Error reading the current truststore: {e}")
+            logger.info("=====  Debugging the PR =====")
             return False
         finally:
             tmp_ca_file.close()
 
         for cert_type in cert_types:
             if not exists(f"{self.certs_path}/{cert_type}.p12"):
+                logger.info(
+                    "=====  Debugging the PR, if we see this then tls is not yet fully configured ====="
+                )
+                logger.info(f"cert_type: {cert_type}")
+                logger.info("=====  Debugging the PR =====")
                 return False
 
             scope = Scope.APP if cert_type == CertType.APP_ADMIN else Scope.UNIT
@@ -804,12 +819,28 @@ class OpenSearchTLS(Object):
                 ).out
             except OpenSearchCmdError as e:
                 logger.error(f"Error reading the current certificate: {e}")
+                logger.info(
+                    "=====  Debugging the PR, if we see this then tls is not yet fully configured ====="
+                )
+                logger.info(f"Error reading the current certificate: {e}")
+                logger.info("=====  Debugging the PR =====")
                 return False
             except AttributeError as e:
                 logger.error(f"Error reading secret: {e}")
+                logger.info(
+                    "=====  Debugging the PR, if we see this then tls is not yet fully configured ====="
+                )
+                logger.info(f"Error reading secret: {e}")
+                logger.info("=====  Debugging the PR =====")
                 return False
 
             if cert_issuer != ca_issuer:
+                logger.info(
+                    "=====  Debugging the PR, if we see this then tls is not yet fully configured ====="
+                )
+                logger.info(f"cert_issuer: {cert_issuer}")
+                logger.info(f"ca_issuer: {ca_issuer}")
+                logger.info("=====  Debugging the PR =====")
                 return False
 
         return True
@@ -820,11 +851,21 @@ class OpenSearchTLS(Object):
 
         admin_secrets = secrets.get_object(Scope.APP, CertType.APP_ADMIN.val, peek=True)
         if not admin_secrets or not admin_secrets.get("cert"):
+            logger.info(
+                "=====  Debugging the PR, if we see this then tls is not yet fully configured ====="
+            )
+            logger.info(f"admin_secrets: {admin_secrets}")
+            logger.info("=====  Debugging the PR =====")
             return False
 
         for cert_type in [CertType.UNIT_TRANSPORT, CertType.UNIT_HTTP]:
             unit_secrets = secrets.get_object(Scope.UNIT, cert_type.val, peek=True)
             if not unit_secrets or not unit_secrets.get("cert"):
+                logger.info(
+                    "=====  Debugging the PR, if we see this then tls is not yet fully configured ====="
+                )
+                logger.info(f"unit_secrets: {unit_secrets}")
+                logger.info("=====  Debugging the PR =====")
                 return False
 
         return True

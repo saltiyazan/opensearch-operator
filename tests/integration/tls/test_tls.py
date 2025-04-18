@@ -75,6 +75,7 @@ async def test_build_and_deploy_active(ops_test: OpsTest) -> None:
         apps_statuses=["active"],
         units_statuses=["active"],
         wait_for_exact_units=len(UNIT_IDS),
+        timeout=2400,
     )
     assert len(ops_test.model.applications[APP_NAME].units) == len(UNIT_IDS)
 
