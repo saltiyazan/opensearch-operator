@@ -130,7 +130,8 @@ class TestOpenSearchTLS(unittest.TestCase):
         get_host_public_ip.return_value = "XX.XXX.XX.XXX"
 
         base_ips = ["1.1.1.1", "address1", "address2"]
-        base_dns_entries = [self.charm.unit_name, "nebula", "alias"]
+        base_dns_entries_http = [self.charm.unit_name, "nebula", "alias", CertType.UNIT_HTTP.val]
+        base_dns_entries_transport = [self.charm.unit_name, "nebula", "alias", CertType.UNIT_TRANSPORT.val]
 
         unit_http_sans = self.charm.tls._get_sans(CertType.UNIT_HTTP)
         self.assertDictEqual(
@@ -138,7 +139,7 @@ class TestOpenSearchTLS(unittest.TestCase):
             {
                 "sans_oid": ["1.2.3.4.5.5"],
                 "sans_ip": sorted(base_ips + ["XX.XXX.XX.XXX"]),
-                "sans_dns": sorted(base_dns_entries),
+                "sans_dns": sorted(base_dns_entries_http),
             },
         )
 
@@ -148,7 +149,7 @@ class TestOpenSearchTLS(unittest.TestCase):
             {
                 "sans_oid": ["1.2.3.4.5.5"],
                 "sans_ip": sorted(base_ips),
-                "sans_dns": sorted(base_dns_entries),
+                "sans_dns": sorted(base_dns_entries_transport),
             },
         )
 
