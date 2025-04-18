@@ -125,7 +125,7 @@ async def test_tls_renewal(ops_test: OpsTest) -> None:
     # test against the leader unit for unit-transport cert
     current_certs = await get_loaded_tls_certificates(ops_test, leader_unit_ip)
     await run_action(
-        ops_test, leader_id, "set-tls-private-key", params={"category": "unit-transport"}
+        ops_test, leader_id, "regenerate-tls-private-key", params={"category": "unit-transport"}
     )
 
     await wait_until(
@@ -149,7 +149,7 @@ async def test_tls_renewal(ops_test: OpsTest) -> None:
     await run_action(
         ops_test,
         non_leader_id,
-        action_name="set-tls-private-key",
+        action_name="regenerate-tls-private-key",
         params={"category": "unit-http"},
     )
 
