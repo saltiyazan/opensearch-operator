@@ -67,13 +67,12 @@ async def get_loaded_tls_certificates(ops_test: OpsTest, unit_ip: str) -> Dict:
         A dict with the currently loaded TLS certificates for http and transport layer.
     """
     url = f"https://{unit_ip}:9200/_plugins/_security/api/ssl/certs"
-    admin_secret = await get_secret_by_label(ops_test, "opensearch:app:app-admin")
-
+    http_secret = await get_secret_by_label(ops_test, "opensearch:unit:unit-http")
     with open("admin.cert", "w") as cert:
-        cert.write(admin_secret["cert"])
+        cert.write(http_secret["cert"])
 
     with open("admin.key", "w") as key:
-        key.write(admin_secret["key"])
+        key.write(http_secret["key"])
 
     response = requests.get(url, cert=("admin.cert", "admin.key"), verify=False)
     return response.json()
