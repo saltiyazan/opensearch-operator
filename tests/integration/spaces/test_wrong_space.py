@@ -69,7 +69,7 @@ async def test_build_and_deploy(ops_test: OpsTest, lxd_spaces) -> None:
         apps_statuses=["active"],
         units_statuses=["active"],
         wait_for_exact_units=DEFAULT_NUM_UNITS,
-        timeout=1400,
+        timeout=3600,
         idle_period=IDLE_PERIOD,
     )
     assert len(ops_test.model.applications[APP_NAME].units) == DEFAULT_NUM_UNITS

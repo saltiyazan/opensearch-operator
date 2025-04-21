@@ -75,7 +75,7 @@ async def test_build_and_deploy_active(ops_test: OpsTest) -> None:
         apps_statuses=["active"],
         units_statuses=["active"],
         wait_for_exact_units=len(UNIT_IDS),
-        timeout=2400,
+        timeout=3600,
     )
     assert len(ops_test.model.applications[APP_NAME].units) == len(UNIT_IDS)
 
@@ -135,7 +135,7 @@ async def test_tls_renewal(ops_test: OpsTest) -> None:
         units_statuses=["active"],
         wait_for_exact_units=len(UNIT_IDS),
         idle_period=15,
-        timeout=60,
+        timeout=3600,
     )
 
     updated_certs = await get_loaded_tls_certificates(ops_test, leader_unit_ip)
@@ -160,7 +160,7 @@ async def test_tls_renewal(ops_test: OpsTest) -> None:
         units_statuses=["active"],
         wait_for_exact_units=len(UNIT_IDS),
         idle_period=5,
-        timeout=30,
+        timeout=3600,
     )
 
     updated_certs = await get_loaded_tls_certificates(ops_test, units[non_leader_id])

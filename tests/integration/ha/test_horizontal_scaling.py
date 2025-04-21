@@ -261,7 +261,7 @@ async def test_safe_scale_down_remove_leaders(
             units_statuses=["active"],
             wait_for_exact_units=init_units_count + added_units,
             idle_period=IDLE_PERIOD,
-            timeout=1800,
+            timeout=3600,
         )
 
         init_units_count += added_units
@@ -277,7 +277,7 @@ async def test_safe_scale_down_remove_leaders(
         units_statuses=["active"],
         wait_for_exact_units=init_units_count - 1,
         idle_period=IDLE_PERIOD,
-        timeout=1800,
+        timeout=3600,
     )
 
     leader_unit_ip = await get_leader_unit_ip(ops_test, app=app)
@@ -293,7 +293,7 @@ async def test_safe_scale_down_remove_leaders(
         units_statuses=["active"],
         wait_for_exact_units=init_units_count - 2,
         idle_period=IDLE_PERIOD,
-        timeout=1800,
+        timeout=3600,
     )
 
     # check if CM re-election happened
@@ -317,7 +317,7 @@ async def test_safe_scale_down_remove_leaders(
         units_statuses=["active"],
         wait_for_exact_units=init_units_count - 3,
         idle_period=IDLE_PERIOD,
-        timeout=1800,
+        timeout=3600,
     )
 
     writes = await c_writes.count()

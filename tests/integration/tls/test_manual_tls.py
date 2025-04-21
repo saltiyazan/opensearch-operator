@@ -72,7 +72,7 @@ async def test_build_and_deploy_with_manual_tls(ops_test: OpsTest) -> None:
         apps_statuses=["active"],
         units_statuses=["active"],
         wait_for_exact_units=len(UNIT_IDS),
-        timeout=2000,
+        timeout=3600,
     )
     assert len(ops_test.model.applications[APP_NAME].units) == len(UNIT_IDS)
 

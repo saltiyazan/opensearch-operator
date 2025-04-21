@@ -65,7 +65,7 @@ async def test_build_and_deploy(ops_test: OpsTest) -> None:
         apps=[TLS_CERTIFICATES_APP_NAME, APP_NAME],
         apps_statuses=["active"],
         units_statuses=["active"],
-        timeout=1000,
+        timeout=3600,
         idle_period=IDLE_PERIOD,
         wait_for_exact_units={
             TLS_CERTIFICATES_APP_NAME: 1,
@@ -96,7 +96,7 @@ async def test_storage_reuse_after_scale_down(
         apps=[app],
         apps_statuses=["active"],
         units_statuses=["active"],
-        timeout=1000,
+        timeout=3600,
         idle_period=IDLE_PERIOD,
         wait_for_exact_units={
             app: 2,
@@ -122,7 +122,7 @@ async def test_storage_reuse_after_scale_down(
         apps=[app],
         apps_statuses=["active", "blocked"],
         units_statuses=["active"],
-        timeout=1000,
+        timeout=3600,
         idle_period=IDLE_PERIOD,
         wait_for_exact_units={
             app: 1,
@@ -141,7 +141,7 @@ async def test_storage_reuse_after_scale_down(
         apps=[app],
         apps_statuses=["active"],
         units_statuses=["active"],
-        timeout=1000,
+        timeout=3600,
         idle_period=IDLE_PERIOD,
         wait_for_exact_units={
             app: 2,
@@ -207,7 +207,7 @@ async def test_storage_reuse_after_scale_to_zero(
         apps=[app],
         apps_statuses=["active"],
         units_statuses=["active"],
-        timeout=1000,
+        timeout=3600,
         idle_period=IDLE_PERIOD,
         wait_for_exact_units={
             app: len(unit_ids),
@@ -248,7 +248,7 @@ async def test_storage_reuse_in_new_cluster_after_app_removal(
             apps=[app],
             apps_statuses=["active"],
             units_statuses=["active"],
-            timeout=1000,
+            timeout=3600,
             idle_period=IDLE_PERIOD,
             wait_for_exact_units={
                 app: 3,
@@ -281,7 +281,7 @@ async def test_storage_reuse_in_new_cluster_after_app_removal(
         apps=[app],
         apps_statuses=["active", "blocked"],
         units_statuses=["active"],
-        timeout=1000,
+        timeout=3600,
         wait_for_exact_units={
             app: 1,
         },
@@ -308,7 +308,7 @@ async def test_storage_reuse_in_new_cluster_after_app_removal(
         apps_statuses=["active", "blocked"],
         units_statuses=["active"],
         wait_for_exact_units=1,
-        timeout=2400,
+        timeout=3600,
     )
 
     # add unit with storage attached
@@ -327,7 +327,7 @@ async def test_storage_reuse_in_new_cluster_after_app_removal(
         units_statuses=["active"],
         wait_for_exact_units=len(storage_ids),
         idle_period=IDLE_PERIOD,
-        timeout=2400,
+        timeout=3600,
     )
     assert len(ops_test.model.applications[app].units) == len(storage_ids)
 

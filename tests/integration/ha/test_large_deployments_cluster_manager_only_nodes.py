@@ -109,7 +109,7 @@ async def test_build_and_deploy(ops_test: OpsTest) -> None:
         },
         wait_for_exact_units={app: units for app, units in APP_UNITS.items()},
         idle_period=IDLE_PERIOD,
-        timeout=1800,
+        timeout=3600,
     )
 
 

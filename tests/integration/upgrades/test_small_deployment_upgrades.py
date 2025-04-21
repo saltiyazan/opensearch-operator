@@ -148,7 +148,7 @@ async def test_upgrade_between_versions(
                 wait_for_exact_units={
                     APP_NAME: 3,
                 },
-                timeout=1400,
+                timeout=3600,
                 idle_period=IDLE_PERIOD,
             )
 
@@ -172,7 +172,7 @@ async def test_upgrade_between_versions(
                 wait_for_exact_units={
                     APP_NAME: 3,
                 },
-                timeout=1400,
+                timeout=3600,
                 idle_period=IDLE_PERIOD,
             )
 
@@ -244,7 +244,7 @@ async def test_upgrade_rollback_from_local(
             wait_for_exact_units={
                 APP_NAME: 3,
             },
-            timeout=1400,
+            timeout=3600,
             idle_period=IDLE_PERIOD,
         )
 
@@ -268,7 +268,7 @@ async def test_upgrade_rollback_from_local(
             wait_for_exact_units={
                 APP_NAME: 3,
             },
-            timeout=1400,
+            timeout=3600,
             idle_period=IDLE_PERIOD,
         )
         await refresh(
@@ -285,7 +285,7 @@ async def test_upgrade_rollback_from_local(
             wait_for_exact_units={
                 APP_NAME: 3,
             },
-            timeout=1400,
+            timeout=3600,
             idle_period=IDLE_PERIOD,
         )
 

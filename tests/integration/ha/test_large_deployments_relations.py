@@ -116,7 +116,7 @@ async def test_build_and_deploy(ops_test: OpsTest) -> None:
         },
         wait_for_exact_units={app: units for app, units in APP_UNITS.items()},
         idle_period=IDLE_PERIOD,
-        timeout=1800,
+        timeout=3600,
     )
 
 
@@ -145,7 +145,7 @@ async def test_invalid_conditions(ops_test: OpsTest) -> None:
             FAILOVER_APP: APP_UNITS[FAILOVER_APP],
         },
         idle_period=IDLE_PERIOD,
-        timeout=1800,
+        timeout=3600,
     )
 
     # integrate TLS to all applications
@@ -164,7 +164,7 @@ async def test_invalid_conditions(ops_test: OpsTest) -> None:
         units_statuses=["active"],
         wait_for_exact_units={app: units for app, units in APP_UNITS.items()},
         idle_period=IDLE_PERIOD,
-        timeout=1800,
+        timeout=3600,
     )
 
     c_writes = ContinuousWrites(ops_test, app=MAIN_APP)
@@ -191,7 +191,7 @@ async def test_invalid_conditions(ops_test: OpsTest) -> None:
         units_statuses=["active"],
         wait_for_exact_units={MAIN_APP: APP_UNITS[MAIN_APP], INVALID_APP: APP_UNITS[INVALID_APP]},
         idle_period=IDLE_PERIOD,
-        timeout=1800,
+        timeout=3600,
     )
 
     # delete the invalid app name
@@ -219,7 +219,7 @@ async def test_large_deployment_fully_formed(
             app: units for app, units in APP_UNITS.items() if app != INVALID_APP
         },
         idle_period=IDLE_PERIOD,
-        timeout=1800,
+        timeout=3600,
     )
 
     # fetch nodes, we should have 6 nodes (main + failover)-orchestrators

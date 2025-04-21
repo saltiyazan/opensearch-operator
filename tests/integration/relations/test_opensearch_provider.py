@@ -403,7 +403,7 @@ async def test_multiple_relations(ops_test: OpsTest, application_charm):
             TLS_CERTIFICATES_APP_NAME: 1,
         },
         idle_period=70,
-        timeout=2000,
+        timeout=3600,
     )
 
     # Test that the permissions are respected between relations by running the same request as

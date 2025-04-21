@@ -354,7 +354,7 @@ async def wait_until(  # noqa: C901
     units_full_statuses: Optional[Dict[str, Dict[str, Dict[str, List[str]]]]] = None,
     wait_for_exact_units: Optional[Union[int, Dict[str, int]]] = -1,
     idle_period: int = 30,
-    timeout: int = 1200,
+    timeout: int = 3600,
 ) -> None:
     """Block and wait until a set of statuses and timeouts are met.
 

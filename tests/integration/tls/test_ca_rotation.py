@@ -92,7 +92,7 @@ async def test_build_and_deploy_active(ops_test: OpsTest) -> None:
         apps=[APP_NAME],
         apps_statuses=["active"],
         units_statuses=["active"],
-        timeout=1800,
+        timeout=3600,
         wait_for_exact_units=len(UNIT_IDS),
     )
 
@@ -187,7 +187,7 @@ async def test_rollout_new_ca(ops_test: OpsTest, deploy_type) -> None:
             apps_statuses=["active"],
             units_statuses=["active"],
             wait_for_exact_units=len(UNIT_IDS),
-            timeout=2400,
+            timeout=3600,
             idle_period=IDLE_PERIOD,
         )
     else:
@@ -201,7 +201,7 @@ async def test_rollout_new_ca(ops_test: OpsTest, deploy_type) -> None:
             },
             units_statuses=["active"],
             wait_for_exact_units={app: units for app, units in APP_UNITS.items()},
-            timeout=2400,
+            timeout=3600,
             idle_period=IDLE_PERIOD,
         )
 

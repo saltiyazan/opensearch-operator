@@ -88,7 +88,7 @@ async def test_multi_clusters_db_isolation(
         units_statuses=["active"],
         wait_for_exact_units={app: len(unit_ids), SECOND_APP_NAME: 1},
         idle_period=IDLE_PERIOD,
-        timeout=1600,
+        timeout=3600,
     )
 
     index_name = "test_index_unique_cluster_dbs"

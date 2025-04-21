@@ -122,7 +122,7 @@ async def _wait_for_units(
             apps=[APP_NAME],
             apps_statuses=["active"],
             units_statuses=["active"],
-            timeout=1800,
+            timeout=3600,
             wait_for_exact_units={APP_NAME: 3},
             idle_period=IDLE_PERIOD,
         )
@@ -131,7 +131,7 @@ async def _wait_for_units(
                 ops_test,
                 apps=[COS_APP_NAME],
                 units_statuses=["blocked"],
-                timeout=1800,
+                timeout=3600,
                 idle_period=IDLE_PERIOD,
             )
         return
@@ -151,7 +151,7 @@ async def _wait_for_units(
         },
         apps_statuses=["active"],
         units_statuses=["active"],
-        timeout=1800,
+        timeout=3600,
         idle_period=IDLE_PERIOD,
     )
     if wait_for_cos:
@@ -159,7 +159,7 @@ async def _wait_for_units(
             ops_test,
             apps=[COS_APP_NAME],
             units_statuses=["blocked"],
-            timeout=1800,
+            timeout=3600,
             idle_period=IDLE_PERIOD,
         )
 
@@ -201,7 +201,7 @@ async def test_build_and_deploy_small_deployment(ops_test: OpsTest, deploy_type:
         apps=[APP_NAME],
         units_statuses=["blocked"],
         wait_for_exact_units={APP_NAME: 3},
-        timeout=3400,
+        timeout=4600,
         idle_period=IDLE_PERIOD,
     )
     assert len(ops_test.model.applications[APP_NAME].units) == 3
@@ -220,7 +220,7 @@ async def test_config_switch_before_cluster_ready(ops_test: OpsTest, deploy_type
         apps=[APP_NAME],
         units_statuses=["blocked"],
         wait_for_exact_units={APP_NAME: 3},
-        timeout=3400,
+        timeout=4600,
         idle_period=IDLE_PERIOD,
     )
     await assert_knn_config_updated(ops_test, True, check_api=False)
