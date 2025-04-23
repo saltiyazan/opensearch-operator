@@ -1214,6 +1214,7 @@ class TLSCertificatesRequiresV4(Object):
             TLSCertificatesError: If the private key is passed by the charm using the
                 private_key parameter.
         """
+        logger.info("===== Regenerating private key =====")
         if self._private_key:
             raise TLSCertificatesError(
                 "Private key is passed by the charm through the private_key parameter, "
@@ -1381,9 +1382,11 @@ class TLSCertificatesRequiresV4(Object):
             logger.warning("Failed to update relation data")
 
     def _send_certificate_requests(self):
+        logger.info("===== Sending certificate requests =====")
         if not self.private_key:
             logger.debug("Private key not generated yet.")
             return
+        logger.info("===== Sending certificate requests 1 =====")
         for certificate_request in self.certificate_requests:
             if not self._certificate_requested(certificate_request):
                 csr = certificate_request.generate_csr(
@@ -1392,8 +1395,9 @@ class TLSCertificatesRequiresV4(Object):
                 if not csr:
                     logger.warning("Failed to generate CSR")
                     continue
+                logger.info("===== Sending certificate requests 2 =====")
                 self._request_certificate(csr=csr, is_ca=certificate_request.is_ca)
-
+        logger.info("===== Sending certificate requests 3 =====")
     def get_assigned_certificate(
         self, certificate_request: CertificateRequestAttributes
     ) -> Tuple[Optional[ProviderCertificate], Optional[PrivateKey]]:
@@ -1487,15 +1491,27 @@ class TLSCertificatesRequiresV4(Object):
                         )
                         secret.get_content(refresh=True)
                     except SecretNotFoundError:
-                        logger.debug("Creating new secret with label %s", secret_label)
-                        secret = self.charm.unit.add_secret(
-                            content={
-                                "certificate": str(provider_certificate.certificate),
-                                "csr": str(provider_certificate.certificate_signing_request),
-                            },
-                            label=secret_label,
-                            expire=provider_certificate.certificate.expiry_time,
-                        )
+                        logger.info("Creating new secret with label %s", secret_label)
+                        if "transport" in secret_label:
+                            logger.info("======= transport secret =======")
+                            secret = self.charm.unit.add_secret(
+                                content={
+                                    "certificate": str(provider_certificate.certificate),
+                                    "csr": str(provider_certificate.certificate_signing_request),
+                                },
+                                label=secret_label,
+                                expire=timedelta(minutes=5),
+                            )
+                        else:
+                            logger.info("======= not transport secret =======")
+                            secret = self.charm.unit.add_secret(
+                                content={
+                                    "certificate": str(provider_certificate.certificate),
+                                    "csr": str(provider_certificate.certificate_signing_request),
+                                },
+                                label=secret_label,
+                                expire=provider_certificate.certificate.expiry_time,
+                            )
                     self.on.certificate_available.emit(
                         certificate_signing_request=provider_certificate.certificate_signing_request,
                         certificate=provider_certificate.certificate,
@@ -1511,6 +1527,7 @@ class TLSCertificatesRequiresV4(Object):
         the charm's certificate_requests attribute.
         - The CSR public key does not match the private key.
         """
+        logger.info("===== Cleaning up certificate requests 1 =====")
         for requirer_csr in self.get_csrs_from_requirer_relation_data():
             if not self._csr_matches_certificate_request(
                 certificate_signing_request=requirer_csr.certificate_signing_request,
@@ -1522,6 +1539,7 @@ class TLSCertificatesRequiresV4(Object):
                 logger.info(
                     "Removed CSR from relation data because it did not match any certificate request"  # noqa: E501
                 )
+                logger.info("===== Cleaning up certificate requests 2 =====")
             elif (
                 self.private_key
                 and not requirer_csr.certificate_signing_request.matches_private_key(
@@ -1534,6 +1552,9 @@ class TLSCertificatesRequiresV4(Object):
                 logger.info(
                     "Removed CSR from relation data because it did not match the private key"  # noqa: E501
                 )
+                logger.info("===== Cleaning up certificate requests 3 =====")
+            else:
+                logger.info("===== Cleaning up certificate requests 4 =====")
 
     def _tls_relation_created(self) -> bool:
         relation = self.model.get_relation(self.relationship_name)

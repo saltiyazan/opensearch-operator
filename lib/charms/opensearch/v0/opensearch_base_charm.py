@@ -94,7 +94,7 @@ from charms.opensearch.v0.opensearch_relation_peer_cluster import (
 )
 from charms.opensearch.v0.opensearch_relation_provider import OpenSearchProvider
 from charms.opensearch.v0.opensearch_secrets import OpenSearchSecrets
-from charms.opensearch.v0.opensearch_tls import OLD_CA_ALIAS, OpenSearchTLS
+from charms.opensearch.v0.opensearch_tls import OpenSearchTLS
 from charms.opensearch.v0.opensearch_users import (
     OpenSearchUserManager,
     OpenSearchUserMgmtError,
@@ -675,7 +675,7 @@ class OpenSearchBaseCharm(CharmBase, abc.ABC):
         # If the unit reloads its certs but the other units are not ready yet
         # we need to wait for them all to be ready before deleting the old CA
         if (
-            self.tls.read_stored_ca(OLD_CA_ALIAS)
+            self.tls.read_stored_ca(cert_type=CertType.APP_ADMIN, old=True)
             and self.tls.ca_and_certs_rotation_complete_in_cluster()
         ):
             logger.debug("update_status: Detected CA rotation complete in cluster")
@@ -864,6 +864,7 @@ class OpenSearchBaseCharm(CharmBase, abc.ABC):
         - Update the corresponding yaml conf files
         - Run the security admin script
         """
+        logger.info("========== on_tls_conf_set 1 ==========")
         if scope == Scope.UNIT:
             admin_secrets = (
                 self.secrets.get_object(Scope.APP, CertType.APP_ADMIN.val, peek=True) or {}
@@ -886,27 +887,35 @@ class OpenSearchBaseCharm(CharmBase, abc.ABC):
             if not admin_secrets.get("subject"):
                 return
             self.opensearch_config.set_admin_tls_conf(admin_secrets)
+        logger.info("========== on_tls_conf_set 2 ==========")
         self.tls.store_admin_tls_secrets_if_applies()
+        logger.info("========== on_tls_conf_set 3 ==========")
         # In case of renewal of the unit transport layer cert - restart opensearch
         if renewal and self.is_admin_user_configured():
+            logger.info("========== on_tls_conf_set 4 ==========")
+            # We didn't enter the next block
             if self.tls.is_fully_configured():
                 try:
+                    logger.info("========== on_tls_conf_set 5 ==========")
                     self.tls.reload_tls_certificates()
                 except OpenSearchHttpError:
                     logger.error("Could not reload TLS certificates via API, will restart.")
                     self._restart_opensearch_event.emit()
                 else:
+                    logger.info("========== on_tls_conf_set 6 ==========")
                     self.status.clear(TLSNotFullyConfigured)
                     self.tls.reset_ca_rotation_state()
                     # if all certs are stored and CA rotation is complete in the cluster
                     # we delete the old ca and update the chain to only include the new one
                     if (
-                        self.tls.read_stored_ca(OLD_CA_ALIAS)
+                        self.tls.has_any_old_ca()
                         and self.tls.ca_and_certs_rotation_complete_in_cluster()
                     ):
                         logger.info("on_tls_conf_set: Detected CA rotation complete in cluster")
                         self.tls.on_ca_certs_rotation_complete()
+                logger.info("========== on_tls_conf_set 7 ==========")
             else:
+                logger.info("========== on_tls_conf_set 8 ==========")
                 event.defer()
                 return
 
@@ -1254,10 +1263,7 @@ class OpenSearchBaseCharm(CharmBase, abc.ABC):
         # If the reload through API failed, we restart the service
         # We remove the old CA and update the chain to only include the new one
         # if all certs are stored and CA rotation is complete in the cluster
-        if (
-            self.tls.read_stored_ca(OLD_CA_ALIAS)
-            and self.tls.ca_and_certs_rotation_complete_in_cluster()
-        ):
+        if self.tls.has_any_old_ca() and self.tls.ca_and_certs_rotation_complete_in_cluster():
             logger.info("post_start_init: Detected CA rotation complete in cluster")
             self.tls.on_ca_certs_rotation_complete()
 

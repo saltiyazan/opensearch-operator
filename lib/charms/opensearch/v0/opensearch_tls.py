@@ -69,8 +69,13 @@ LIBAPI = 0
 LIBPATCH = 1
 
 
-CA_ALIAS = "ca"
-OLD_CA_ALIAS = f"old-{CA_ALIAS}"
+ADMIN_CA_ALIAS = "ca"
+TRANSPORT_CA_ALIAS = "transport-ca"
+HTTP_CA_ALIAS = "http-ca"
+
+OLD_ADMIN_CA_ALIAS = f"old-{ADMIN_CA_ALIAS}"
+OLD_TRANSPORT_CA_ALIAS = f"old-{TRANSPORT_CA_ALIAS}"
+OLD_HTTP_CA_ALIAS = f"old-{HTTP_CA_ALIAS}"
 
 
 logger = logging.getLogger(__name__)
@@ -163,6 +168,7 @@ class OpenSearchTLS(Object):
         ]
 
     def _on_regenerate_tls_private_key(self, event: ActionEvent) -> None:
+        # For some reason only works on the second attempt
         """Set the TLS private key, which will be used for requesting the certificate."""
         if not self.charm.opensearch_peer_cm.deployment_desc():
             event.fail("The action can only be run once the deployment is complete.")
@@ -367,11 +373,12 @@ class OpenSearchTLS(Object):
                 merge=True,
             )
 
-        current_stored_ca = self.read_stored_ca()
-        if current_stored_ca != str(event.ca):
+        current_stored_ca = self.read_stored_ca(cert_type, old=False)
+        if current_stored_ca != str(event.ca):  # what are we comparing here?
             if not self.store_new_ca(
-                self.charm.secrets.get_object(scope, cert_type.val, peek=True)
+                self.charm.secrets.get_object(scope, cert_type.val, peek=True), cert_type
             ):
+                logger.info("=====  store_new_ca 1 =====")
                 logger.debug("Could not store new CA certificate.")
                 event.defer()
                 return
@@ -381,14 +388,17 @@ class OpenSearchTLS(Object):
             # -> request new certs -> get new certs -> on_tls_conf_set
             # -> delete both tls_ca_renewing and tls_ca_renewed
             if current_stored_ca:
+                logger.info("=====  store_new_ca 2 =====")
                 self.charm.peers_data.put(Scope.UNIT, "tls_ca_renewing", True)
                 self.update_ca_rotation_flag_to_peer_cluster_relation(
                     flag="tls_ca_renewing", operation="add"
                 )
+                logger.info("=====  store_new_ca 3 =====")
                 self.charm.on_tls_ca_rotation()
                 return
 
         # store the certificates and keys in a key store
+        logger.info("=====  Calling store_new_tls_resources 1 =====")
         self.store_new_tls_resources(
             cert_type, self.charm.secrets.get_object(scope, cert_type.val, peek=True)
         )
@@ -396,8 +406,11 @@ class OpenSearchTLS(Object):
         # apply the chain.pem file for API requests, only if the CA cert has not been updated
         if not self.charm.unit.is_leader():
             if admin_secrets.get("cert"):
+                logger.info("=====  Calling store_new_tls_resources 2 =====")
                 self.store_new_tls_resources(CertType.APP_ADMIN, admin_secrets)
-        if admin_secrets.get("chain") and not self.read_stored_ca(alias=OLD_CA_ALIAS):
+        if admin_secrets.get("chain") and not self.read_stored_ca(
+            cert_type=CertType.APP_ADMIN, old=True
+        ):
             self.update_request_ca_bundle()
 
         for relation in self.charm.opensearch_provider.relations:
@@ -414,7 +427,7 @@ class OpenSearchTLS(Object):
         if self.charm.unit.is_leader() and self.charm.opensearch_peer_cm.is_provider(typ="main"):
             self.charm.peer_cluster_provider.refresh_relation_data(event, can_defer=False)
 
-        renewal = self.read_stored_ca(alias=OLD_CA_ALIAS) is not None or (
+        renewal = self.read_stored_ca(cert_type=cert_type, old=True) is not None or (
             old_cert is not None and old_cert != str(event.certificate)
         )
 
@@ -568,39 +581,62 @@ class OpenSearchTLS(Object):
                 merge=True,
             )
 
-    def store_new_ca(self, secrets: Dict[str, Any]) -> bool:  # noqa: C901
+    def store_new_ca(self, secrets: Dict[str, Any], cert_type: CertType) -> bool:  # noqa: C901
         """Add new CA cert to trust store."""
+        logger.info("===== Store new CA 1 =====")
         if not (deployment_desc := self.charm.opensearch_peer_cm.deployment_desc()):
             return False
 
         if self.charm.unit.is_leader() and deployment_desc.typ == DeploymentType.MAIN_ORCHESTRATOR:
+            logger.info("===== Store new CA 2 =====")
             self._create_keystore_pwd_if_not_exists(Scope.APP, CertType.APP_ADMIN, "ca")
 
         admin_secrets = (
             self.charm.secrets.get_object(Scope.APP, CertType.APP_ADMIN.val, peek=True) or {}
         )
-
+        logger.info("===== Store new CA 3 =====")
         if not ((secrets or {}).get("ca-cert") and admin_secrets.get("truststore-password")):
             logging.error("CA cert  or truststore-password not found, quitting.")
             return False
+        logger.info("===== Store new CA 4 =====")
 
-        store_path = f"{self.certs_path}/{CA_ALIAS}.p12"
+        # Select the appropriate CA alias based on cert type
+        if cert_type == CertType.APP_ADMIN:
+            ca_alias = ADMIN_CA_ALIAS
+            old_ca_alias = OLD_ADMIN_CA_ALIAS
+            logger.info("===== Store new CA 5 =====")
+            logger.info(f"ca_alias: {ca_alias}")
+        elif cert_type == CertType.UNIT_TRANSPORT:
+            ca_alias = TRANSPORT_CA_ALIAS
+            old_ca_alias = OLD_TRANSPORT_CA_ALIAS
+            logger.info("===== Store new CA 6 =====")
+            logger.info(f"ca_alias: {ca_alias}")
+        elif cert_type == CertType.UNIT_HTTP:
+            ca_alias = HTTP_CA_ALIAS
+            old_ca_alias = OLD_HTTP_CA_ALIAS
+            logger.info("===== Store new CA 7 =====")
+            logger.info(f"ca_alias: {ca_alias}")
+        else:
+            logging.error(f"Unsupported certificate type: {cert_type}")
+            return False
+
+        store_path = f"{self.certs_path}/{ca_alias}.p12"
 
         try:
             run_cmd(
                 f"""{self.keytool} -changealias \
-                -alias {CA_ALIAS} \
-                -destalias {OLD_CA_ALIAS} \
+                -alias {ca_alias} \
+                -destalias {old_ca_alias} \
                 -keystore {store_path} \
                 -storetype PKCS12
             """,
                 f"-storepass {admin_secrets.get('truststore-password')}",
             )
-            logger.info(f"Current CA {CA_ALIAS} was renamed to old-{CA_ALIAS}.")
+            logger.info(f"Current CA {ca_alias} was renamed to {old_ca_alias}.")
         except OpenSearchCmdError as e:
-            # This message means there was no "ca" alias or store before, if it happens ignore
+            # This message means there was no CA alias or store before, if it happens ignore
             if not (
-                f"Alias <{CA_ALIAS}> does not exist" in e.out
+                f"Alias <{ca_alias}> does not exist" in e.out
                 or "Keystore file does not exist" in e.out
             ):
                 raise
@@ -616,7 +652,7 @@ class OpenSearchTLS(Object):
                     f"""{self.keytool} -importcert \
                     -trustcacerts \
                     -noprompt \
-                    -alias {CA_ALIAS} \
+                    -alias {ca_alias} \
                     -keystore {store_path} \
                     -file {ca_tmp_file.name} \
                     -storetype PKCS12
@@ -624,7 +660,7 @@ class OpenSearchTLS(Object):
                     f"-storepass {admin_secrets.get('truststore-password')}",
                 )
                 run_cmd(f"sudo chmod +r {store_path}")
-                logger.info("New CA was added to truststore.")
+                logger.info(f"New CA was added to truststore with alias {ca_alias}.")
             except OpenSearchCmdError as e:
                 logging.error(f"Error storing the ca-cert: {e}")
                 return False
@@ -633,11 +669,29 @@ class OpenSearchTLS(Object):
 
         return True
 
-    def read_stored_ca(self, alias: str = CA_ALIAS) -> Optional[str]:
-        """Load stored CA cert."""
+    def read_stored_ca(
+        self, cert_type: CertType = CertType.APP_ADMIN, old: bool = False
+    ) -> Optional[str]:
+        """Load stored CA cert.
+
+        Args:
+            cert_type: The type of certificate to read the CA for. Defaults to APP_ADMIN.
+            old: Whether to read the old CA (during rotation) or current CA. Defaults to False.
+        """
         secrets = self.charm.secrets.get_object(Scope.APP, CertType.APP_ADMIN.val, peek=True)
 
-        ca_trust_store = f"{self.certs_path}/ca.p12"
+        # Select the appropriate CA alias based on cert type
+        if cert_type == CertType.APP_ADMIN:
+            ca_alias = OLD_ADMIN_CA_ALIAS if old else ADMIN_CA_ALIAS
+        elif cert_type == CertType.UNIT_TRANSPORT:
+            ca_alias = OLD_TRANSPORT_CA_ALIAS if old else TRANSPORT_CA_ALIAS
+        elif cert_type == CertType.UNIT_HTTP:
+            ca_alias = OLD_HTTP_CA_ALIAS if old else HTTP_CA_ALIAS
+        else:
+            logging.error(f"Unsupported certificate type: {cert_type}")
+            return None
+
+        ca_trust_store = f"{self.certs_path}/{ADMIN_CA_ALIAS if cert_type == CertType.APP_ADMIN else ca_alias}.p12"
         if not (exists(ca_trust_store) and secrets):
             return None
 
@@ -648,21 +702,37 @@ class OpenSearchTLS(Object):
             ).out
         except OpenSearchCmdError as e:
             logging.error(f"Error reading the current truststore: {e}")
-            return
+            return None
 
         # parse output to retrieve the current CA (in case there are many)
         start_cert_marker = "-----BEGIN CERTIFICATE-----"
         end_cert_marker = "-----END CERTIFICATE-----"
         certificates = stored_certs.split(end_cert_marker)
         for cert in certificates:
-            if f"friendlyName: {alias}" in cert:
+            if f"friendlyName: {ca_alias}" in cert:
                 return f"{start_cert_marker}{cert.split(start_cert_marker)[1]}{end_cert_marker}"
 
         return None
 
-    def remove_old_ca(self) -> None:
-        """Remove old CA cert from trust store."""
-        ca_trust_store = f"{self.certs_path}/ca.p12"
+    def remove_old_ca(self, cert_type: CertType) -> None:
+        """Remove old CA cert from trust store.
+
+        Args:
+            cert_type: The type of certificate whose old CA should be removed.
+        """
+        # Select the appropriate CA alias based on cert type
+        if cert_type == CertType.APP_ADMIN:
+            old_ca_alias = OLD_ADMIN_CA_ALIAS
+            store_path = f"{self.certs_path}/{ADMIN_CA_ALIAS}.p12"
+        elif cert_type == CertType.UNIT_TRANSPORT:
+            old_ca_alias = OLD_TRANSPORT_CA_ALIAS
+            store_path = f"{self.certs_path}/{TRANSPORT_CA_ALIAS}.p12"
+        elif cert_type == CertType.UNIT_HTTP:
+            old_ca_alias = OLD_HTTP_CA_ALIAS
+            store_path = f"{self.certs_path}/{HTTP_CA_ALIAS}.p12"
+        else:
+            logging.error(f"Unsupported certificate type: {cert_type}")
+            return
 
         secrets = self.charm.secrets.get_object(Scope.APP, CertType.APP_ADMIN.val, peek=True)
         store_pwd = secrets.get("truststore-password")
@@ -671,29 +741,30 @@ class OpenSearchTLS(Object):
             run_cmd(
                 f"""{self.keytool} \
                 -list \
-                -keystore {ca_trust_store} \
+                -keystore {store_path} \
                 -storepass {store_pwd} \
-                -alias {OLD_CA_ALIAS} \
+                -alias {old_ca_alias} \
                 -storetype PKCS12"""
             )
         except OpenSearchCmdError as e:
-            # This message means there was no "ca" alias or store before, if it happens ignore
-            if f"Alias <{OLD_CA_ALIAS}> does not exist" in e.out:
+            # This message means there was no old CA alias or store, if it happens ignore
+            if f"Alias <{old_ca_alias}> does not exist" in e.out:
                 return
 
-        old_ca_content = self.read_stored_ca(alias=OLD_CA_ALIAS)
+        old_ca_content = self.read_stored_ca(cert_type=cert_type, old=True)
 
         run_cmd(
             f"""{self.keytool} \
             -delete \
-            -keystore {ca_trust_store} \
+            -keystore {store_path} \
             -storepass {store_pwd} \
-            -alias {OLD_CA_ALIAS} \
+            -alias {old_ca_alias} \
             -storetype PKCS12"""
         )
-        logger.info(f"Removed {OLD_CA_ALIAS} from truststore.")
+        logger.info(f"Removed {old_ca_alias} from truststore.")
         # remove it from the request bundle
-        self._remove_ca_from_request_bundle(old_ca_content)
+        if old_ca_content:
+            self._remove_ca_from_request_bundle(old_ca_content)
 
     def update_request_ca_bundle(self) -> None:
         """Create a new chain.pem file for requests module"""
@@ -707,18 +778,21 @@ class OpenSearchTLS(Object):
 
     def store_new_tls_resources(self, cert_type: CertType, secrets: Dict[str, Any]):
         """Add key and cert to keystore."""
+        logger.info("========== Store new TLS resources 1 ==========")
         if not self.ca_rotation_complete_in_cluster():
             return
+        logger.info("========== Store new TLS resources 2 ==========")
 
         cert_name = cert_type.val
         store_path = f"{self.certs_path}/{cert_type}.p12"
+        logger.info("========== Store new TLS resources 3 ==========")
 
         # if the TLS certificate is available before the keystore-password, create it anyway
         if cert_type == CertType.APP_ADMIN:
             self._create_keystore_pwd_if_not_exists(Scope.APP, cert_type, cert_type.val)
         else:
             self._create_keystore_pwd_if_not_exists(Scope.UNIT, cert_type, cert_type.val)
-
+        logger.info("========== Store new TLS resources 4 ==========")
         if not secrets.get("key"):
             logging.error("TLS key not found, quitting.")
             return
@@ -727,6 +801,8 @@ class OpenSearchTLS(Object):
             os.remove(store_path)
         except OSError:
             pass
+
+        logger.info("========== Store new TLS resources 5 ==========")
 
         tmp_key = tempfile.NamedTemporaryFile(
             mode="w+t", suffix=".pem", dir=self.charm.opensearch.paths.conf
@@ -742,6 +818,8 @@ class OpenSearchTLS(Object):
         tmp_cert.flush()
         tmp_cert.seek(0)
 
+        logger.info("========== Store new TLS resources 6 ==========")
+
         try:
             cmd = f"""openssl pkcs12 -export \
                 -in {tmp_cert.name} \
@@ -755,12 +833,15 @@ class OpenSearchTLS(Object):
 
             run_cmd(cmd, args)
             run_cmd(f"sudo chmod +r {store_path}")
+            logger.info("========== Store new TLS resources 7 ==========")
         except OpenSearchCmdError as e:
             logging.error(f"Error storing the TLS certificates for {cert_name}: {e}")
         finally:
             tmp_key.close()
             tmp_cert.close()
             logger.info(f"TLS certificate for {cert_name} stored.")
+            logger.info("========== Store new TLS resources 8 ==========")
+        logger.info("========== Store new TLS resources 9 ==========")
 
     def all_tls_resources_stored(self, only_unit_resources: bool = False) -> bool:  # noqa: C901
         """Check if all TLS resources are stored on disk."""
@@ -770,37 +851,11 @@ class OpenSearchTLS(Object):
 
         # compare issuer of the cert with the issuer of the CA
         # if they don't match, certs are not up-to-date and need to be renewed after CA rotation
-        if not (current_ca := self.read_stored_ca()):
-            logger.info(
-                "=====  Debugging the PR, if we see this then tls is not yet fully configured ====="
-            )
-            logger.info(f"current_ca: {current_ca}")
-            logger.info("=====  Debugging the PR =====")
-            return False
-
-        # to make sure the content is processed correctly by openssl, temporary store it in a file
-        tmp_ca_file = tempfile.NamedTemporaryFile(mode="w+t", dir=self.charm.opensearch.paths.conf)
-        tmp_ca_file.write(current_ca)
-        tmp_ca_file.flush()
-        tmp_ca_file.seek(0)
-
-        try:
-            ca_issuer = run_cmd(f"openssl x509 -in {tmp_ca_file.name} -noout -issuer").out
-        except OpenSearchCmdError as e:
-            logger.error(f"Error reading the current truststore: {e}")
-            logger.info(
-                "=====  Debugging the PR, if we see this then tls is not yet fully configured ====="
-            )
-            logger.info(f"Error reading the current truststore: {e}")
-            logger.info("=====  Debugging the PR =====")
-            return False
-        finally:
-            tmp_ca_file.close()
 
         for cert_type in cert_types:
             if not exists(f"{self.certs_path}/{cert_type}.p12"):
                 logger.info(
-                    "=====  Debugging the PR, if we see this then tls is not yet fully configured ====="
+                    "=====  Debugging the PR, if we see this then tls is not yet fully configured 3 ====="
                 )
                 logger.info(f"cert_type: {cert_type}")
                 logger.info("=====  Debugging the PR =====")
@@ -808,6 +863,34 @@ class OpenSearchTLS(Object):
 
             scope = Scope.APP if cert_type == CertType.APP_ADMIN else Scope.UNIT
             secret = self.charm.secrets.get_object(scope, cert_type.val, peek=True)
+
+            if not (current_ca := self.read_stored_ca(cert_type=cert_type)):
+                logger.info(
+                    "=====  Debugging the PR, if we see this then tls is not yet fully configured 1 ====="
+                )
+                logger.info(f"current_ca: {current_ca}")
+                logger.info("=====  Debugging the PR =====")
+                return False
+
+            tmp_ca_file = tempfile.NamedTemporaryFile(
+                mode="w+t", dir=self.charm.opensearch.paths.conf
+            )
+            tmp_ca_file.write(current_ca)
+            tmp_ca_file.flush()
+            tmp_ca_file.seek(0)
+
+            try:
+                ca_issuer = run_cmd(f"openssl x509 -in {tmp_ca_file.name} -noout -issuer").out
+            except OpenSearchCmdError as e:
+                logger.error(f"Error reading the current truststore: {e}")
+                logger.info(
+                    "=====  Debugging the PR, if we see this then tls is not yet fully configured 2 ====="
+                )
+                logger.info(f"Error reading the current truststore: {e}")
+                logger.info("=====  Debugging the PR =====")
+                return False
+            finally:
+                tmp_ca_file.close()
 
             try:
                 cert_issuer = run_cmd(
@@ -820,7 +903,7 @@ class OpenSearchTLS(Object):
             except OpenSearchCmdError as e:
                 logger.error(f"Error reading the current certificate: {e}")
                 logger.info(
-                    "=====  Debugging the PR, if we see this then tls is not yet fully configured ====="
+                    "=====  Debugging the PR, if we see this then tls is not yet fully configured 4 ====="
                 )
                 logger.info(f"Error reading the current certificate: {e}")
                 logger.info("=====  Debugging the PR =====")
@@ -828,7 +911,7 @@ class OpenSearchTLS(Object):
             except AttributeError as e:
                 logger.error(f"Error reading secret: {e}")
                 logger.info(
-                    "=====  Debugging the PR, if we see this then tls is not yet fully configured ====="
+                    "=====  Debugging the PR, if we see this then tls is not yet fully configured 5 ====="
                 )
                 logger.info(f"Error reading secret: {e}")
                 logger.info("=====  Debugging the PR =====")
@@ -836,7 +919,7 @@ class OpenSearchTLS(Object):
 
             if cert_issuer != ca_issuer:
                 logger.info(
-                    "=====  Debugging the PR, if we see this then tls is not yet fully configured ====="
+                    "=====  Debugging the PR, if we see this then tls is not yet fully configured 6 ====="
                 )
                 logger.info(f"cert_issuer: {cert_issuer}")
                 logger.info(f"ca_issuer: {ca_issuer}")
@@ -852,7 +935,7 @@ class OpenSearchTLS(Object):
         admin_secrets = secrets.get_object(Scope.APP, CertType.APP_ADMIN.val, peek=True)
         if not admin_secrets or not admin_secrets.get("cert"):
             logger.info(
-                "=====  Debugging the PR, if we see this then tls is not yet fully configured ====="
+                "=====  Debugging the PR, if we see this then tls is not yet fully configured 7 ====="
             )
             logger.info(f"admin_secrets: {admin_secrets}")
             logger.info("=====  Debugging the PR =====")
@@ -862,7 +945,7 @@ class OpenSearchTLS(Object):
             unit_secrets = secrets.get_object(Scope.UNIT, cert_type.val, peek=True)
             if not unit_secrets or not unit_secrets.get("cert"):
                 logger.info(
-                    "=====  Debugging the PR, if we see this then tls is not yet fully configured ====="
+                    "=====  Debugging the PR, if we see this then tls is not yet fully configured 8 ====="
                 )
                 logger.info(f"unit_secrets: {unit_secrets}")
                 logger.info("=====  Debugging the PR =====")
@@ -899,6 +982,7 @@ class OpenSearchTLS(Object):
             return
 
         # Store the "Admin" certificate, key and CA on the disk of the new unit
+        logger.info("=====  Calling store_new_tls_resources 3 =====")
         self.store_new_tls_resources(CertType.APP_ADMIN, current_secrets)
 
         # Mark this unit as tls configured
@@ -981,8 +1065,10 @@ class OpenSearchTLS(Object):
         rotation_complete = True
         # check current unit
         if self.charm.peers_data.get(Scope.UNIT, "tls_ca_renewing", False):
+            logger.info("=====  ca_rotation_complete_in_cluster 1 =====")
             rotation_happening = True
         if not self.charm.peers_data.get(Scope.UNIT, "tls_ca_renewed", False):
+            logger.info("=====  ca_rotation_complete_in_cluster 2 =====")
             logger.debug(
                 f"TLS CA rotation ongoing in unit: {self.charm.unit.name}, will not update tls certificates."
             )
@@ -1058,7 +1144,7 @@ class OpenSearchTLS(Object):
     def on_ca_certs_rotation_complete(self) -> None:
         """Handle the completion of CA rotation."""
         logger.info("CA rotation completed. Deleting old CA and updating request bundle.")
-        self.remove_old_ca()
+        self.remove_all_old_cas()
         self.update_request_ca_bundle()
 
     def _add_ca_to_request_bundle(self, ca_cert: str) -> None:
@@ -1079,3 +1165,20 @@ class OpenSearchTLS(Object):
 
         bundle_content = bundle_path.read_text()
         bundle_path.write_text(bundle_content.replace(ca_cert, ""))
+
+    def has_any_old_ca(self) -> bool:
+        """Check if there are any old CA certificates stored.
+
+        Returns:
+            bool: True if any old CA certificate exists, False otherwise.
+        """
+        for cert_type in [CertType.APP_ADMIN, CertType.UNIT_TRANSPORT, CertType.UNIT_HTTP]:
+            if self.read_stored_ca(cert_type=cert_type, old=True) is not None:
+                return True
+        return False
+
+    def remove_all_old_cas(self) -> None:
+        """Remove all old CA certificates from all trust stores."""
+        for cert_type in [CertType.APP_ADMIN, CertType.UNIT_TRANSPORT, CertType.UNIT_HTTP]:
+            self.remove_old_ca(cert_type)
+            logger.info(f"Completed old CA cleanup for {cert_type.val}")
