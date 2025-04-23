@@ -52,7 +52,7 @@ LIBAPI = 4
 
 # Increment this PATCH version before using `charmcraft publish-lib` or reset
 # to 0 if you are raising the major API version
-LIBPATCH = 12
+LIBPATCH = 13
 
 PYDEPS = [
     "cryptography>=43.0.0",
@@ -1253,6 +1253,7 @@ class TLSCertificatesRequiresV4(Object):
         try:
             secret = self.charm.model.get_secret(label=self._get_private_key_secret_label())
             secret.set_content({"private-key": str(private_key)})
+            secret.get_content(refresh=True)
         except SecretNotFoundError:
             self.charm.unit.add_secret(
                 content={"private-key": str(private_key)},
