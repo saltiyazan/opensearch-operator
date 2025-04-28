@@ -1298,11 +1298,6 @@ class OpenSearchBaseCharm(CharmBase, abc.ABC):
             event.defer()
             return
 
-        if not self.tls.is_fully_configured():
-            self.node_lock.release()
-            event.defer()
-            return
-
         try:
             self._stop_opensearch(restart=True)
             logger.info("Restarting OpenSearch.")
