@@ -374,7 +374,7 @@ class OpenSearchTLS(Object):
             )
 
         current_stored_ca = self.read_stored_ca(cert_type, old=False)
-        if current_stored_ca != str(event.ca):  # what are we comparing here?
+        if current_stored_ca != str(event.ca):
             if not self.store_new_ca(
                 self.charm.secrets.get_object(scope, cert_type.val, peek=True), cert_type
             ):
@@ -687,9 +687,6 @@ class OpenSearchTLS(Object):
             ca_alias = OLD_TRANSPORT_CA_ALIAS if old else TRANSPORT_CA_ALIAS
         elif cert_type == CertType.UNIT_HTTP:
             ca_alias = OLD_HTTP_CA_ALIAS if old else HTTP_CA_ALIAS
-        else:
-            logging.error(f"Unsupported certificate type: {cert_type}")
-            return None
 
         ca_trust_store = f"{self.certs_path}/{ADMIN_CA_ALIAS if cert_type == CertType.APP_ADMIN else ca_alias}.p12"
         if not (exists(ca_trust_store) and secrets):
