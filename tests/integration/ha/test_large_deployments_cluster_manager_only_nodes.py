@@ -13,7 +13,6 @@ from pytest_operator.plugin import OpsTest
 from ..helpers import (
     CONFIG_OPTS,
     MODEL_CONFIG,
-    SERIES,
     get_leader_unit_ip,
     integrate_opensearch_with_tls,
 )
@@ -37,15 +36,12 @@ CLUSTER_NAME = "log-app"
 APP_UNITS = {MAIN_APP: 1, FAILOVER_APP: 1, DATA_APP: 2}
 
 
-@pytest.mark.runner(["self-hosted", "linux", "X64", "jammy", "xlarge"])
-@pytest.mark.group(1)
 @pytest.mark.abort_on_fail
 @pytest.mark.skip_if_deployed
-async def test_build_and_deploy(ops_test: OpsTest) -> None:
+async def test_build_and_deploy(ops_test: OpsTest, charm, series) -> None:
     """Build and deploy one unit of OpenSearch."""
     # it is possible for users to provide their own cluster for HA testing.
     # Hence, check if there is a pre-existing cluster.
-    my_charm = await ops_test.build_charm(".")
     await ops_test.model.set_config(MODEL_CONFIG)
 
     # Deploy TLS Certificates operator.
@@ -55,25 +51,25 @@ async def test_build_and_deploy(ops_test: OpsTest) -> None:
             TLS_CERTIFICATES_APP_NAME, channel=TLS_STABLE_CHANNEL, config=config
         ),
         ops_test.model.deploy(
-            my_charm,
+            charm,
             application_name=MAIN_APP,
             num_units=1,
-            series=SERIES,
+            series=series,
             config={"cluster_name": CLUSTER_NAME, "roles": "cluster_manager"} | CONFIG_OPTS,
         ),
         ops_test.model.deploy(
-            my_charm,
+            charm,
             application_name=FAILOVER_APP,
             num_units=1,
-            series=SERIES,
+            series=series,
             config={"cluster_name": CLUSTER_NAME, "init_hold": True, "roles": "cluster_manager"}
             | CONFIG_OPTS,
         ),
         ops_test.model.deploy(
-            my_charm,
+            charm,
             application_name=DATA_APP,
             num_units=2,
-            series=SERIES,
+            series=series,
             config={"cluster_name": CLUSTER_NAME, "init_hold": True, "roles": "data"}
             | CONFIG_OPTS,
         ),
@@ -113,8 +109,6 @@ async def test_build_and_deploy(ops_test: OpsTest) -> None:
     )
 
 
-@pytest.mark.runner(["self-hosted", "linux", "X64", "jammy", "xlarge"])
-@pytest.mark.group(1)
 @pytest.mark.abort_on_fail
 async def test_correct_startup_after_integration(ops_test: OpsTest) -> None:
     """After integrating the cluster manager with the data application, both should start up."""
@@ -144,8 +138,6 @@ async def test_correct_startup_after_integration(ops_test: OpsTest) -> None:
     assert len(nodes) == 3, f"Wrong node count. Expecting 3 online nodes, found: {len(nodes)}."
 
 
-@pytest.mark.runner(["self-hosted", "linux", "X64", "jammy", "xlarge"])
-@pytest.mark.group(1)
 @pytest.mark.abort_on_fail
 async def test_integrate_failover(ops_test: OpsTest) -> None:
     """After integrating the failover app to the others, all should be started and fine."""
