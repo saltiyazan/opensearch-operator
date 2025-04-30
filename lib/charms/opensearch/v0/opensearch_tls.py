@@ -374,9 +374,6 @@ class OpenSearchTLS(Object):
 
 
         current_stored_ca = self.read_stored_ca(cert_type, old=False)
-<<<<<<< Updated upstream
-        if current_stored_ca != str(event.ca):
-=======
         logger.info("=====  Debugging the PR: current_stored_ca: %s", current_stored_ca)
         logger.info("=====  Debugging the PR: event.ca: %s", event.ca)
         if current_stored_ca != str(event.ca):  # what are we comparing here?
@@ -385,7 +382,6 @@ class OpenSearchTLS(Object):
             #     event.defer()
             #     return
             logger.info("=====  store_new_ca 1 =====")
->>>>>>> Stashed changes
             if not self.store_new_ca(
                 self.charm.secrets.get_object(scope, cert_type.val, peek=True), cert_type
             ):
@@ -829,6 +825,7 @@ class OpenSearchTLS(Object):
 
     def update_request_ca_bundle(self) -> None:
         """Create a new chain.pem file for requests module"""
+        logger.debug("Updating requests TLS CA bundle")
         admin_secret = self.charm.secrets.get_object(Scope.APP, CertType.APP_ADMIN.val, peek=True)
 
         # we store the pem format to make it easier for the python requests lib
