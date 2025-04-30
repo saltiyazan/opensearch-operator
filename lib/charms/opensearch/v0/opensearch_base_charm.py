@@ -678,7 +678,7 @@ class OpenSearchBaseCharm(CharmBase, abc.ABC):
             self.tls.read_stored_ca(cert_type=CertType.APP_ADMIN, old=True)
             and self.tls.ca_and_certs_rotation_complete_in_cluster()
         ):
-            logger.debug("update_status: Detected CA rotation complete in cluster")
+            logger.info("======update_status: Detected CA rotation complete in cluster")
             self.tls.on_ca_certs_rotation_complete()
         # If relation not broken - leave
         if (
@@ -907,15 +907,14 @@ class OpenSearchBaseCharm(CharmBase, abc.ABC):
                     self.tls.reset_ca_rotation_state()
                     # if all certs are stored and CA rotation is complete in the cluster
                     # we delete the old ca and update the chain to only include the new one
-                    if (
-                        self.tls.has_any_old_ca()
-                        and self.tls.ca_and_certs_rotation_complete_in_cluster()
-                    ):
+                    logger.info("========== on_tls_conf_set 7 ==========")
+                    logger.info(f"ca_and_certs_rotation_complete_in_cluster: {self.tls.ca_and_certs_rotation_complete_in_cluster()}")
+                    if self.tls.ca_and_certs_rotation_complete_in_cluster():
                         logger.info("on_tls_conf_set: Detected CA rotation complete in cluster")
                         self.tls.on_ca_certs_rotation_complete()
-                logger.info("========== on_tls_conf_set 7 ==========")
-            else:
                 logger.info("========== on_tls_conf_set 8 ==========")
+            else:
+                logger.info("========== on_tls_conf_set 9 ==========")
                 event.defer()
                 return
 
@@ -1251,19 +1250,21 @@ class OpenSearchBaseCharm(CharmBase, abc.ABC):
             self.status.clear(TLSNotFullyConfigured)
 
         # request new certificates after rotating the CA
-        if self.peers_data.get(Scope.UNIT, "tls_ca_renewing", False) and self.peers_data.get(
-            Scope.UNIT, "tls_ca_renewed", False
-        ):
-            self.status.set(MaintenanceStatus(TLSNotFullyConfigured))
-            self.tls.request_new_unit_certificates()
-            if self.unit.is_leader():
-                self.tls.request_new_admin_certificate()
-            else:
-                self.tls.store_admin_tls_secrets_if_applies()
+        # if self.peers_data.get(Scope.UNIT, "tls_ca_renewing", False) and self.peers_data.get(
+        #     Scope.UNIT, "tls_ca_renewed", False
+        # ):
+        #     self.status.set(MaintenanceStatus(TLSNotFullyConfigured))
+        #     self.tls.request_new_unit_certificates()
+        #     if self.unit.is_leader():
+        #         self.tls.request_new_admin_certificate()
+        #     else:
+        #         self.tls.store_admin_tls_secrets_if_applies()
         # If the reload through API failed, we restart the service
         # We remove the old CA and update the chain to only include the new one
         # if all certs are stored and CA rotation is complete in the cluster
-        if self.tls.has_any_old_ca() and self.tls.ca_and_certs_rotation_complete_in_cluster():
+        logger.info("========== post_start_init 1 ==========")
+        logger.info(f"ca_and_certs_rotation_complete_in_cluster: {self.tls.ca_and_certs_rotation_complete_in_cluster()}")
+        if self.tls.ca_and_certs_rotation_complete_in_cluster():
             logger.info("post_start_init: Detected CA rotation complete in cluster")
             self.tls.on_ca_certs_rotation_complete()
 
@@ -1293,11 +1294,16 @@ class OpenSearchBaseCharm(CharmBase, abc.ABC):
 
     def _restart_opensearch(self, event: _RestartOpenSearch) -> None:
         """Restart OpenSearch if possible."""
+        logger.info("======= _restart_opensearch 1 =======")
         if not self.node_lock.acquired:
             logger.debug("Lock to restart opensearch not acquired. Will retry next event")
             event.defer()
             return
 
+<<<<<<< Updated upstream
+=======
+        logger.info("======= _restart_opensearch 2 =======")
+>>>>>>> Stashed changes
         try:
             self._stop_opensearch(restart=True)
             logger.info("Restarting OpenSearch.")
@@ -1309,6 +1315,7 @@ class OpenSearchBaseCharm(CharmBase, abc.ABC):
             self.status.set(WaitingStatus(ServiceIsStopping))
             return
 
+        logger.info("======= _restart_opensearch 4 =======")
         self._start_opensearch_event.emit()
 
     def _upgrade_opensearch(self, event: _UpgradeOpenSearch) -> None:  # noqa: C901
