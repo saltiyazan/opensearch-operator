@@ -707,7 +707,7 @@ class OpenSearchBaseCharm(CharmBase, abc.ABC):
         if self.opensearch_config.update_host_if_needed():
             self.status.set(MaintenanceStatus(TLSNewCertsRequested))
             self.tls.delete_stored_tls_resources()
-            self.tls.request_new_unit_certificates()
+            self.tls.store_latest_unit_certificates()
 
             # since when an IP change happens, "_on_peer_relation_joined" won't be called,
             # we need to alert the leader that it must recompute the node roles for any unit whose
@@ -1000,10 +1000,11 @@ class OpenSearchBaseCharm(CharmBase, abc.ABC):
                 event.defer()
                 return
 
-            self.tls.request_new_admin_certificate()
+            self.tls.store_latest_admin_certificate()
 
     def _start_opensearch(self, event: _StartOpenSearch) -> None:  # noqa: C901
         """Start OpenSearch, with a generated or passed conf, if all resources configured."""
+        logger.info("======= _start_opensearch 1 =======")
         if not self.opensearch_peer_cm.deployment_desc() and self.app.planned_units() == 0:
             # canonical/opensearch-operator#444
             # https://bugs.launchpad.net/juju/+bug/2076599
@@ -1012,10 +1013,13 @@ class OpenSearchBaseCharm(CharmBase, abc.ABC):
             #   2) an unfinished (re)start: yet to run _post_start_init() method
             #   3) LP#2076599: remove-application was called in-between and peer databag is empty
             # TODO: remove this IF condition once LP#2076599 is fixed in Juju.
+            logger.info("======= _start_opensearch 1.1 =======")
             return
 
+        logger.info("======= _start_opensearch 2 =======")
         if self.opensearch.is_started():
             try:
+                logger.info("======= _start_opensearch 3 =======")
                 self._post_start_init(event)
             except (
                 OpenSearchHttpError,
@@ -1030,22 +1034,27 @@ class OpenSearchBaseCharm(CharmBase, abc.ABC):
                 event.defer()
             return
 
+        logger.info("======= _start_opensearch 4 =======")
         self.peers_data.delete(Scope.UNIT, "started")
 
+        logger.info("======= _start_opensearch 5 =======")
         if event.ignore_lock:
             # Only used for force upgrades
             logger.debug("Starting without lock")
         elif not self.node_lock.acquired:
+            logger.info("======= _start_opensearch 6 =======")
             logger.debug("Lock to start opensearch not acquired. Will retry next event")
             event.defer()
             return
 
+        logger.info("======= _start_opensearch 7 =======")
         if not self._can_service_start():
             self.node_lock.release()
             logger.info("Could not start opensearch service. Will retry next event.")
             event.defer()
             return
 
+        logger.info("======= _start_opensearch 8 =======")
         if self.opensearch.is_failed():
             self.node_lock.release()
             self.status.set(BlockedStatus(ServiceStartError))
@@ -1053,22 +1062,24 @@ class OpenSearchBaseCharm(CharmBase, abc.ABC):
             return
 
         self.unit.status = WaitingStatus(WaitingToStart)
-
+        logger.info("======= _start_opensearch 9 =======")
         try:
             # Retrieve the nodes of the cluster, needed to configure this node
             nodes = self._get_nodes(False)
-
+            logger.info("======= _start_opensearch 10 =======")
             # validate the roles prior to starting
             self.opensearch_peer_cm.validate_roles(nodes, on_new_unit=True)
 
             # Set the configuration of the node
             self._set_node_conf(nodes)
         except OpenSearchHttpError as e:
+            logger.info("======= _start_opensearch 11 =======")
             logger.debug(f"error getting the nodes: {e}")
             self.node_lock.release()
             event.defer()
             return
         except OpenSearchProvidedRolesException as e:
+            logger.info("======= _start_opensearch 12 =======")
             logger.exception(e)
             self.node_lock.release()
             event.defer()
@@ -1082,12 +1093,14 @@ class OpenSearchBaseCharm(CharmBase, abc.ABC):
                     or self.peers_data.get(Scope.APP, "security_index_initialised", False)
                 )
             )
+            logger.info("======= _start_opensearch 13 =======")
             self._post_start_init(event)
         except (
             OpenSearchHttpError,
             OpenSearchStartTimeoutError,
             OpenSearchNotFullyReadyError,
         ) as e:
+            logger.info("======= _start_opensearch 14 =======")
             self.node_lock.release()
             # In large deployments with cluster-manager-only-nodes, the startup might fail
             # for the cluster-manager if a joining data node did not yet initialize the
@@ -1097,6 +1110,7 @@ class OpenSearchBaseCharm(CharmBase, abc.ABC):
             event.defer()
             logger.warning(e)
         except (OpenSearchStartError, OpenSearchUserMgmtError) as e:
+            logger.info("======= _start_opensearch 15 =======")
             logger.warning(e)
             self.node_lock.release()
             self.status.set(BlockedStatus(ServiceStartError))
@@ -1244,6 +1258,7 @@ class OpenSearchBaseCharm(CharmBase, abc.ABC):
             self.peer_cluster_provider.refresh_relation_data(event, can_defer=False)
 
         # update the peer relation data for TLS CA rotation routine
+        logger.info("========== post_start_init reset_ca_rotation_state ==========")
         self.tls.reset_ca_rotation_state()
         if self.is_tls_full_configured_in_cluster():
             self.status.clear(TLSCaRotation)
@@ -1253,10 +1268,11 @@ class OpenSearchBaseCharm(CharmBase, abc.ABC):
         # if self.peers_data.get(Scope.UNIT, "tls_ca_renewing", False) and self.peers_data.get(
         #     Scope.UNIT, "tls_ca_renewed", False
         # ):
+        #     logger.info("========== post_start_init request new certificates ==========")
         #     self.status.set(MaintenanceStatus(TLSNotFullyConfigured))
-        #     self.tls.request_new_unit_certificates()
+        #     self.tls.store_latest_unit_certificates()
         #     if self.unit.is_leader():
-        #         self.tls.request_new_admin_certificate()
+        #         self.tls.store_latest_admin_certificate()
         #     else:
         #         self.tls.store_admin_tls_secrets_if_applies()
         # If the reload through API failed, we restart the service
@@ -1300,10 +1316,7 @@ class OpenSearchBaseCharm(CharmBase, abc.ABC):
             event.defer()
             return
 
-<<<<<<< Updated upstream
-=======
         logger.info("======= _restart_opensearch 2 =======")
->>>>>>> Stashed changes
         try:
             self._stop_opensearch(restart=True)
             logger.info("Restarting OpenSearch.")
@@ -1367,20 +1380,26 @@ class OpenSearchBaseCharm(CharmBase, abc.ABC):
     def _can_service_start(self) -> bool:
         """Return if the opensearch service can start."""
         # if there are any missing system requirements leave
+        logger.info("======= _can_service_start 1 =======")
         if missing_sys_reqs := self.opensearch.missing_sys_requirements():
             self.status.set(BlockedStatus(" - ".join(missing_sys_reqs)))
             return False
 
+        logger.info("======= _can_service_start 2 =======")
         if not (deployment_desc := self.opensearch_peer_cm.deployment_desc()):
             return False
 
         if not self.opensearch_peer_cm.can_start(deployment_desc):
             return False
 
+        logger.info("======= _can_service_start 3 =======")
         if not self.is_admin_user_configured():
             return False
 
         # Case of the first "main" cluster to get started.
+        logger.info("======= _can_service_start 4 =======")
+        logger.info(f"peers_data: {self.peers_data.get(Scope.APP, 'security_index_initialised', False)}")
+        logger.info(f"alt_hosts: {self.alt_hosts}")
         if (
             not self.peers_data.get(Scope.APP, "security_index_initialised", False)
             or not self.alt_hosts
@@ -1394,6 +1413,7 @@ class OpenSearchBaseCharm(CharmBase, abc.ABC):
         # When a new unit joins, replica shards are automatically added to it. In order to prevent
         # overloading the cluster, units must be started one at a time. So we defer starting
         # opensearch until all shards in other units are in a "started" or "unassigned" state.
+        logger.info("======= _can_service_start 5 =======")
         try:
             if (
                 self.health.apply(wait_for_green_first=True, use_localhost=False, app=False)
