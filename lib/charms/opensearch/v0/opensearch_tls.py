@@ -29,7 +29,19 @@ from charms.opensearch.v0.constants_charm import (
     PeerClusterRelationName,
     PeerRelationName,
 )
-from charms.opensearch.v0.constants_tls import TLS_RELATION, CertType
+from charms.opensearch.v0.constants_tls import (
+    ADMIN_TLS_RELATION,
+    CLIENT_TLS_RELATION,
+    TRANSPORT_TLS_RELATION,
+    ADMIN_CA_ALIAS,
+    TRANSPORT_CA_ALIAS,
+    HTTP_CA_ALIAS,
+    OLD_ADMIN_CA_ALIAS,
+    OLD_TRANSPORT_CA_ALIAS,
+    OLD_HTTP_CA_ALIAS,
+    CA_TRUSTSTORE_NAME,
+    CertType,
+)
 from charms.opensearch.v0.helper_charm import all_units, run_cmd
 from charms.opensearch.v0.helper_networking import get_host_public_ip
 from charms.opensearch.v0.helper_security import generate_password
@@ -40,13 +52,12 @@ from charms.opensearch.v0.opensearch_exceptions import (
     OpenSearchHttpError,
 )
 from charms.opensearch.v0.opensearch_internal_data import Scope
-from charms.tls_certificates_interface.v3.tls_certificates import (
+from charms.tls_certificates_interface.v4.tls_certificates import (
     CertificateAvailableEvent,
-    CertificateExpiringEvent,
-    CertificateInvalidatedEvent,
-    TLSCertificatesRequiresV3,
-    generate_csr,
-    generate_private_key,
+    CertificateRequestAttributes,
+    CertificateSigningRequest,
+    Mode,
+    TLSCertificatesRequiresV4,
 )
 from ops.charm import ActionEvent, RelationBrokenEvent, RelationCreatedEvent
 from ops.framework import Object
@@ -85,26 +96,92 @@ class OpenSearchTLS(Object):
         self.jdk_path = jdk_path
         self.certs_path = certs_path
         self.keytool = "opensearch.keytool"
-        self.certs = TLSCertificatesRequiresV3(charm, TLS_RELATION, expiry_notification_time=23)
+        self.admin_certs = TLSCertificatesRequiresV4(
+            charm=self.charm,
+            relationship_name=ADMIN_TLS_RELATION,
+            certificate_requests=self._get_admin_certificate_requests(),
+            mode=Mode.APP,
+            refresh_events=[
+                self.on.config_changed,
+            ],
+        )
+        self.transport_certs = TLSCertificatesRequiresV4(
+            charm=self.charm,
+            relationship_name=TRANSPORT_TLS_RELATION,
+            certificate_requests=self._get_unit_certificate_requests(CertType.UNIT_TRANSPORT),
+            mode=Mode.UNIT,
+            refresh_events=[
+                self.on.config_changed,
+            ],
+        )
+        self.client_certs = TLSCertificatesRequiresV4(
+            charm=self.charm,
+            relationship_name=CLIENT_TLS_RELATION,
+            certificate_requests=self._get_unit_certificate_requests(CertType.UNIT_HTTP),
+            mode=Mode.UNIT,
+            refresh_events=[
+                self.on.config_changed,
+            ],
+        )
 
         self.framework.observe(
             self.charm.on.set_tls_private_key_action, self._on_set_tls_private_key
         )
 
-        self.framework.observe(
-            self.charm.on[TLS_RELATION].relation_created, self._on_tls_relation_created
-        )
-        self.framework.observe(
-            self.charm.on[TLS_RELATION].relation_broken, self._on_tls_relation_broken
-        )
+        for relation_name in [ADMIN_TLS_RELATION, TRANSPORT_TLS_RELATION, CLIENT_TLS_RELATION]:
+            self.framework.observe(
+                self.charm.on[relation_name].relation_created, self._on_tls_relation_created
+            )
+            self.framework.observe(
+                self.charm.on[relation_name].relation_broken, self._on_tls_relation_broken
+            )
 
-        self.framework.observe(self.certs.on.certificate_available, self._on_certificate_available)
-        self.framework.observe(self.certs.on.certificate_expiring, self._on_certificate_expiring)
-        self.framework.observe(
-            self.certs.on.certificate_invalidated, self._on_certificate_invalidated
-        )
+        for cert_requirer in [self.admin_certs, self.transport_certs, self.client_certs]:
+            self.framework.observe(
+                cert_requirer.on.certificate_available, self._on_certificate_available
+            )
+
+    def _get_admin_certificate_requests(self, allow_non_leader: bool = False) -> List[CertificateRequestAttributes]:
+        """Get the certificate requests for the admin certificate."""
+        if not self.charm.unit.is_leader() and not allow_non_leader:
+            logger.warning("Admin certificates are only available on the leader unit")
+            return []
+        if not self.charm.opensearch_peer_cm.deployment_desc() or not self.model.get_relation(
+            self.peer_relation
+        ):
+            return []
+        return [
+            CertificateRequestAttributes(
+                common_name="admin",
+                organization=self.charm.opensearch_peer_cm.deployment_desc().config.cluster_name,
+                sans_oid=frozenset(self._get_sans(CertType.APP_ADMIN).get("sans_oid")),
+                add_unique_id_to_subject_name=False,
+                add_unique_id_to_non_critical_extension=True,
+            )
+        ]
+
+    def _get_unit_certificate_requests(
+        self, cert_type: CertType
+    ) -> List[CertificateRequestAttributes]:
+        if not self.charm.opensearch_peer_cm.deployment_desc() or not self.model.get_relation(
+            self.peer_relation
+        ):
+            return []
+        sans = self._get_sans(cert_type)
+        return [
+            CertificateRequestAttributes(
+                common_name=self._get_common_name(cert_type),
+                organization=self.charm.opensearch_peer_cm.deployment_desc().config.cluster_name,
+                sans_oid=frozenset(sans.get("sans_oid")),
+                sans_dns=frozenset(sans.get("sans_dns")),
+                sans_ip=frozenset(sans.get("sans_ip")),
+                add_unique_id_to_subject_name=False,
+                add_unique_id_to_non_critical_extension=True,
+            )
+        ]
 
     def _on_set_tls_private_key(self, event: ActionEvent) -> None:
+        # For some reason only works on the second attempt
         """Set the TLS private key, which will be used for requesting the certificate."""
         if not self.charm.opensearch_peer_cm.deployment_desc():
             event.fail("The action can only be run once the deployment is complete.")
@@ -126,41 +203,49 @@ class OpenSearchTLS(Object):
             return
 
         try:
-            self._request_certificate(
-                scope, cert_type, event.params.get("key", None), event.params.get("password", None)
-            )
+            if scope == Scope.APP and cert_type == CertType.APP_ADMIN:
+                self.admin_certs.regenerate_private_key()
+            elif scope == Scope.UNIT and cert_type == CertType.UNIT_TRANSPORT:
+                self.transport_certs.regenerate_private_key()
+            elif scope == Scope.UNIT and cert_type == CertType.UNIT_HTTP:
+                self.client_certs.regenerate_private_key()
+            else:
+                raise ValueError(f"Invalid certificate type: {cert_type}")
         except ValueError as e:
             event.fail(str(e))
 
     def request_new_admin_certificate(self) -> None:
         """Request the generation of a new admin certificate."""
+        self.charm.peers_data.delete(Scope.UNIT, f"{CertType.APP_ADMIN.val}_tls_configured")
         if not self.charm.unit.is_leader():
             return
-        admin_secrets = (
-            self.charm.secrets.get_object(Scope.APP, CertType.APP_ADMIN.val, peek=True) or {}
-        )
-        self._request_certificate(
-            Scope.APP,
-            CertType.APP_ADMIN,
-            admin_secrets.get("key"),
-            admin_secrets.get("key-password"),
-        )
+        certificate_attributes = self._get_admin_certificate_requests()[0]
+        provider_certificate, _ = self.admin_certs.get_assigned_certificate(certificate_attributes)
+        if not provider_certificate:
+            logger.error("No provider certificate found for admin certificate when storing latest admin certificate")
+            return
+        self.admin_certs.renew_certificate(provider_certificate)
 
-    def request_new_unit_certificates(self) -> None:
+    def request_new_unit_certificates(self, cert_type: CertType) -> None:
         """Requests a new certificate with the given scope and type from the tls operator."""
-        self.charm.peers_data.delete(Scope.UNIT, "tls_configured")
+        self.charm.peers_data.delete(Scope.UNIT, f"{cert_type.val}_tls_configured")
 
-        for cert_type in [CertType.UNIT_HTTP, CertType.UNIT_TRANSPORT]:
-            csr = self.charm.secrets.get_object(Scope.UNIT, cert_type.val, peek=True)[
-                "csr"
-            ].encode("utf-8")
-            self.certs.request_certificate_revocation(csr)
-
-        # doing this sequentially (revoking -> requesting new ones), to avoid triggering
-        # the "certificate available" callback with old certificates
-        for cert_type in [CertType.UNIT_HTTP, CertType.UNIT_TRANSPORT]:
-            secrets = self.charm.secrets.get_object(Scope.UNIT, cert_type.val, peek=True)
-            self._request_certificate_renewal(Scope.UNIT, cert_type, secrets)
+        if cert_type == CertType.UNIT_HTTP:
+            certificate_attributes = self._get_unit_certificate_requests(CertType.UNIT_HTTP)[0]
+            provider_certificate, _ = self.client_certs.get_assigned_certificate(certificate_attributes)
+            if not provider_certificate:
+                logger.error("No provider certificate found for client certificate when storing latest unit certificate")
+            else:
+                self.client_certs.renew_certificate(provider_certificate)
+        elif cert_type == CertType.UNIT_TRANSPORT:
+            certificate_attributes = self._get_unit_certificate_requests(CertType.UNIT_TRANSPORT)[0]
+            provider_certificate, _ = self.transport_certs.get_assigned_certificate(certificate_attributes)
+            if not provider_certificate:
+                logger.error("No provider certificate found for transport certificate when storing latest unit certificate")
+            else:
+                self.transport_certs.renew_certificate(provider_certificate)
+        else:
+            return
 
     def _on_tls_relation_created(self, event: RelationCreatedEvent) -> None:
         """Request certificate when TLS relation created."""
@@ -173,7 +258,7 @@ class OpenSearchTLS(Object):
         if not (deployment_desc := self.charm.opensearch_peer_cm.deployment_desc()):
             event.defer()
             return
-        admin_cert = (
+        admin_secrets = (
             self.charm.secrets.get_object(Scope.APP, CertType.APP_ADMIN.val, peek=True) or {}
         )
         if self.charm.unit.is_leader() and deployment_desc.typ == DeploymentType.MAIN_ORCHESTRATOR:
@@ -183,8 +268,7 @@ class OpenSearchTLS(Object):
                 Scope.APP, CertType.APP_ADMIN, CertType.APP_ADMIN.val
             )
 
-            self._request_certificate(Scope.APP, CertType.APP_ADMIN)
-        elif not admin_cert.get("truststore-password"):
+        elif not admin_secrets.get("truststore-password"):
             logger.debug("Truststore-password from main-orchestrator not available yet.")
             event.defer()
             return
@@ -196,9 +280,6 @@ class OpenSearchTLS(Object):
         self._create_keystore_pwd_if_not_exists(
             Scope.UNIT, CertType.UNIT_HTTP, CertType.UNIT_HTTP.val
         )
-
-        self._request_certificate(Scope.UNIT, CertType.UNIT_TRANSPORT)
-        self._request_certificate(Scope.UNIT, CertType.UNIT_HTTP)
 
     def _on_tls_relation_broken(self, event: RelationBrokenEvent) -> None:
         """Notify the charm that the relation is broken."""
@@ -213,28 +294,62 @@ class OpenSearchTLS(Object):
 
         CertificateAvailableEvents fire whenever a new certificate is created by the TLS charm.
         """
-        try:
-            scope, cert_type, secrets = self._find_secret(event.certificate_signing_request, "csr")
-            logger.debug(f"{scope.val}.{cert_type.val} TLS certificate available.")
-        except TypeError:
-            logger.debug("Unknown certificate available.")
+        certificate_signing_request = CertificateSigningRequest.from_string(
+            str(event.certificate_signing_request)
+        )
+        certificate_attributes = CertificateRequestAttributes.from_csr(
+            certificate_signing_request, False
+        )
+        if certificate_attributes in self._get_admin_certificate_requests(allow_non_leader=True):
+            scope = Scope.APP
+            cert_type = CertType.APP_ADMIN
+            _, pk = self.admin_certs.get_assigned_certificate(certificate_attributes)
+            logger.info("Admin Certificate Available")
+        elif certificate_attributes in self._get_unit_certificate_requests(
+            CertType.UNIT_TRANSPORT
+        ):
+            scope = Scope.UNIT
+            cert_type = CertType.UNIT_TRANSPORT
+            _, pk = self.transport_certs.get_assigned_certificate(certificate_attributes)
+            logger.info("Transport Certificate Available")
+        elif certificate_attributes in self._get_unit_certificate_requests(CertType.UNIT_HTTP):
+            scope = Scope.UNIT
+            cert_type = CertType.UNIT_HTTP
+            _, pk = self.client_certs.get_assigned_certificate(certificate_attributes)
+            logger.info("Client Certificate Available")
+        else:
+            logger.info("Unknown certificate available.")
             return
-
-        # seems like the admin certificate is also broadcast to non leader units on refresh request
-        if not self.charm.unit.is_leader() and scope == Scope.APP:
-            return
+        admin_secrets = (
+            self.charm.secrets.get_object(Scope.APP, CertType.APP_ADMIN.val, peek=True) or {}
+        )
+        if scope == Scope.APP and not self.charm.unit.is_leader():
+            if not admin_secrets.get("cert") or not admin_secrets.get("chain") or not admin_secrets.get("ca-cert"):
+                event.defer()
+                return
+            self.store_admin_tls_secrets_if_applies()
+        if scope != Scope.APP:
+            # If admin cert not available we need to defer, otherwise it will never be stored
+            if not admin_secrets.get("cert"):
+                logger.info("Admin certificate not available yet. Waiting for next events.")
+                event.defer()
+                return
+        self.charm.secrets.put_object(
+            scope=scope,
+            key=cert_type.val,
+            value={
+                "key": str(pk),
+                "csr": str(event.certificate_signing_request),
+                "subject": f"/O={self.charm.opensearch_peer_cm.deployment_desc().config.cluster_name}/CN={certificate_attributes.common_name}",
+            },
+            merge=True,
+        )
+        secrets = self.charm.secrets.get_object(scope, cert_type.val, peek=True) or {}
 
         old_cert = secrets.get("cert", None)
-        ca_chain = "\n".join(event.chain[::-1])
+        ca_chain = "\n".join(str(cert) for cert in event.chain[::-1])
 
-        current_secret_obj = self.charm.secrets.get_object(scope, cert_type.val, peek=True) or {}
-        secret = {
-            "chain": current_secret_obj.get("chain"),
-            "cert": current_secret_obj.get("cert"),
-            "ca-cert": current_secret_obj.get("ca-cert"),
-        }
-
-        if secret != {"chain": ca_chain, "cert": event.certificate, "ca-cert": event.ca}:
+        if secrets.get("chain") != ca_chain or secrets.get("ca-cert") != str(event.ca):
             # Juju is not able to check if secrets' content changed between revisions
             # this IF is intended to reduce a storm of secret-removed/-changed events
             # for the same content
@@ -243,16 +358,16 @@ class OpenSearchTLS(Object):
                 cert_type.val,
                 {
                     "chain": ca_chain,
-                    "cert": event.certificate,
-                    "ca-cert": event.ca,
+                    "ca-cert": str(event.ca),
                 },
                 merge=True,
             )
 
-        current_stored_ca = self.read_stored_ca()
-        if current_stored_ca != event.ca:
+        current_stored_ca = self.read_stored_ca(cert_type, old=False)
+        if current_stored_ca != str(event.ca):
             if not self.store_new_ca(
-                self.charm.secrets.get_object(scope, cert_type.val, peek=True)
+                self.charm.secrets.get_object(scope, cert_type.val, peek=True),
+                cert_type
             ):
                 logger.debug("Could not store new CA certificate.")
                 event.defer()
@@ -263,34 +378,32 @@ class OpenSearchTLS(Object):
             # -> request new certs -> get new certs -> on_tls_conf_set
             # -> delete both tls_ca_renewing and tls_ca_renewed
             if current_stored_ca:
-                self.charm.peers_data.put(Scope.UNIT, "tls_ca_renewing", True)
+                self.charm.peers_data.put(Scope.UNIT, f"{cert_type.val}_tls_ca_renewing", True)
                 self.update_ca_rotation_flag_to_peer_cluster_relation(
-                    flag="tls_ca_renewing", operation="add"
+                    flag=f"{cert_type.val}_tls_ca_renewing", operation="add"
                 )
                 self.charm.on_tls_ca_rotation()
                 return
 
+        if secrets.get("cert") != str(event.certificate):
+            self.charm.secrets.put_object(
+                scope,
+                cert_type.val,
+                {
+                    "cert": str(event.certificate),
+                },
+                merge=True,
+            )
         # store the certificates and keys in a key store
-        self.store_new_tls_resources(
+        if not self.store_new_tls_resources(
             cert_type, self.charm.secrets.get_object(scope, cert_type.val, peek=True)
-        )
+        ):
+            event.defer()
+            return
 
         # apply the chain.pem file for API requests, only if the CA cert has not been updated
-        admin_secrets = (
-            self.charm.secrets.get_object(Scope.APP, CertType.APP_ADMIN.val, peek=True) or {}
-        )
-        if admin_secrets.get("chain") and not self.read_stored_ca(alias=OLD_CA_ALIAS):
-            self.update_request_ca_bundle()
-
-        # store the admin certificates in non-leader units
-        # if admin cert not available we need to defer, otherwise it will never be stored
-        if not self.charm.unit.is_leader():
-            if admin_secrets.get("cert"):
-                self.store_new_tls_resources(CertType.APP_ADMIN, admin_secrets)
-            else:
-                logger.info("Admin certificate not available yet. Waiting for next events.")
-                event.defer()
-                return
+        if admin_secrets.get("chain") and not self.read_stored_ca(cert_type=CertType.APP_ADMIN, old=True):
+            self.update_request_ca_bundle(cert_type)
 
         for relation in self.charm.opensearch_provider.relations:
             try:
@@ -306,8 +419,8 @@ class OpenSearchTLS(Object):
         if self.charm.unit.is_leader() and self.charm.opensearch_peer_cm.is_provider(typ="main"):
             self.charm.peer_cluster_provider.refresh_relation_data(event, can_defer=False)
 
-        renewal = self.read_stored_ca(alias=OLD_CA_ALIAS) is not None or (
-            old_cert is not None and old_cert != event.certificate
+        renewal = self.read_stored_ca(cert_type=cert_type, old=True) is not None or (
+            old_cert is not None and old_cert != str(event.certificate)
         )
 
         try:
@@ -315,95 +428,6 @@ class OpenSearchTLS(Object):
         except OpenSearchError as e:
             logger.exception(e)
             event.defer()
-
-    def _on_certificate_expiring(
-        self, event: Union[CertificateExpiringEvent, CertificateInvalidatedEvent]
-    ) -> None:
-        """Request the new certificate when old certificate is expiring."""
-        self.charm.peers_data.delete(Scope.UNIT, "tls_configured")
-        try:
-            scope, cert_type, secrets = self._find_secret(event.certificate, "cert")
-            logger.debug(f"{scope.val}.{cert_type.val} TLS certificate expiring.")
-        except TypeError:
-            logger.debug("Unknown certificate expiring.")
-            return
-
-        self._request_certificate_renewal(scope, cert_type, secrets)
-
-    def _on_certificate_invalidated(self, event: CertificateInvalidatedEvent) -> None:
-        """Handle a cert that was revoked or has expired"""
-        logger.debug(f"Received certificate invalidation. Reason: {event.reason}")
-        self._on_certificate_expiring(event)
-
-    def _request_certificate(
-        self,
-        scope: Scope,
-        cert_type: CertType,
-        key: Optional[str] = None,
-        password: Optional[str] = None,
-    ):
-        """Request certificate and store the key/key-password/csr in the scope's data bag."""
-        if key is None:
-            key = generate_private_key()
-        else:
-            key = self._parse_tls_file(key)
-
-        if password is not None:
-            password = password.encode("utf-8")
-
-        subject = self._get_subject(cert_type)
-        organization = self.charm.opensearch_peer_cm.deployment_desc().config.cluster_name
-        csr = generate_csr(
-            add_unique_id_to_subject_name=False,
-            private_key=key,
-            private_key_password=password,
-            subject=subject,
-            organization=organization,
-            **self._get_sans(cert_type),
-        )
-
-        self.charm.secrets.put_object(
-            scope=scope,
-            key=cert_type.val,
-            value={
-                "key": key.decode("utf-8"),
-                "key-password": password,
-                "csr": csr.decode("utf-8"),
-                "subject": f"/O={self.charm.opensearch_peer_cm.deployment_desc().config.cluster_name}/CN={subject}",
-            },
-            merge=True,
-        )
-
-        if self.charm.model.get_relation(TLS_RELATION):
-            self.certs.request_certificate_creation(certificate_signing_request=csr)
-
-    def _request_certificate_renewal(
-        self, scope: Scope, cert_type: CertType, secrets: Dict[str, str]
-    ):
-        """Request new certificate and store the key/key-password/csr in the scope's data bag."""
-        key = secrets["key"].encode("utf-8")
-        key_password = secrets.get("key-password", None)
-        old_csr = secrets["csr"].encode("utf-8")
-
-        subject = self._get_subject(cert_type)
-        organization = self.charm.opensearch_peer_cm.deployment_desc().config.cluster_name
-        new_csr = generate_csr(
-            add_unique_id_to_subject_name=False,
-            private_key=key,
-            private_key_password=(None if key_password is None else key_password.encode("utf-8")),
-            subject=subject,
-            organization=organization,
-            **self._get_sans(cert_type),
-        )
-
-        self.charm.secrets.put_object(
-            scope, cert_type.val, {"csr": new_csr.decode("utf-8"), "subject": subject}, merge=True
-        )
-
-        self.certs.request_certificate_renewal(
-            old_certificate_signing_request=old_csr,
-            new_certificate_signing_request=new_csr,
-        )
 
     def _get_sans(self, cert_type: CertType) -> Dict[str, List[str]]:
         """Create a list of OID/IP/DNS names for an OpenSearch unit.
@@ -416,7 +440,9 @@ class OpenSearchTLS(Object):
         if cert_type == CertType.APP_ADMIN:
             return sans
 
-        dns = {self.charm.unit_name, socket.gethostname(), socket.getfqdn()}
+        # We add the cert_type to the subject name to avoid conflicts between unit-http and unit-transport
+        # This won't be accepted by CAs like Let's Encrypt, but since we are adding IP addresses, that aren't accepted by Let's Encrypt either, it's fine
+        dns = {self.charm.unit_name, socket.gethostname(), socket.getfqdn(), cert_type.val}
         ips = {self.charm.unit_ip}
 
         host_public_ip = get_host_public_ip()
@@ -438,7 +464,7 @@ class OpenSearchTLS(Object):
 
         return sans
 
-    def _get_subject(self, cert_type: CertType) -> str:
+    def _get_common_name(self, cert_type: CertType) -> str:
         """Get subject of the certificate."""
         if cert_type == CertType.APP_ADMIN:
             cn = "admin"
@@ -536,7 +562,7 @@ class OpenSearchTLS(Object):
                 merge=True,
             )
 
-    def store_new_ca(self, secrets: Dict[str, Any]) -> bool:  # noqa: C901
+    def store_new_ca(self, secrets: Dict[str, Any], cert_type: CertType) -> bool:  # noqa: C901
         """Add new CA cert to trust store."""
         if not (deployment_desc := self.charm.opensearch_peer_cm.deployment_desc()):
             return False
@@ -552,23 +578,36 @@ class OpenSearchTLS(Object):
             logging.error("CA cert  or truststore-password not found, quitting.")
             return False
 
-        store_path = f"{self.certs_path}/{CA_ALIAS}.p12"
+        if cert_type == CertType.APP_ADMIN:
+            ca_alias = ADMIN_CA_ALIAS
+            old_ca_alias = OLD_ADMIN_CA_ALIAS
+        elif cert_type == CertType.UNIT_TRANSPORT:
+            ca_alias = TRANSPORT_CA_ALIAS
+            old_ca_alias = OLD_TRANSPORT_CA_ALIAS
+        elif cert_type == CertType.UNIT_HTTP:
+            ca_alias = HTTP_CA_ALIAS
+            old_ca_alias = OLD_HTTP_CA_ALIAS
+        else:
+            logger.error(f"Invalid certificate type: {cert_type}")
+            return False
+
+        store_path = f"{self.certs_path}/{CA_TRUSTSTORE_NAME}"
 
         try:
             run_cmd(
                 f"""{self.keytool} -changealias \
-                -alias {CA_ALIAS} \
-                -destalias {OLD_CA_ALIAS} \
+                -alias {ca_alias} \
+                -destalias {old_ca_alias} \
                 -keystore {store_path} \
                 -storetype PKCS12
             """,
                 f"-storepass {admin_secrets.get('truststore-password')}",
             )
-            logger.info(f"Current CA {CA_ALIAS} was renamed to old-{CA_ALIAS}.")
+            logger.info(f"Current CA {ca_alias} was renamed to old-{ca_alias}.")
         except OpenSearchCmdError as e:
             # This message means there was no "ca" alias or store before, if it happens ignore
             if not (
-                f"Alias <{CA_ALIAS}> does not exist" in e.out
+                f"Alias <{ca_alias}> does not exist" in e.out
                 or "Keystore file does not exist" in e.out
             ):
                 raise
@@ -584,7 +623,7 @@ class OpenSearchTLS(Object):
                     f"""{self.keytool} -importcert \
                     -trustcacerts \
                     -noprompt \
-                    -alias {CA_ALIAS} \
+                    -alias {ca_alias} \
                     -keystore {store_path} \
                     -file {ca_tmp_file.name} \
                     -storetype PKCS12
@@ -592,20 +631,36 @@ class OpenSearchTLS(Object):
                     f"-storepass {admin_secrets.get('truststore-password')}",
                 )
                 run_cmd(f"sudo chmod +r {store_path}")
-                logger.info("New CA was added to truststore.")
+                logger.info(f"New CA was added to truststore with alias {ca_alias}.")
             except OpenSearchCmdError as e:
                 logging.error(f"Error storing the ca-cert: {e}")
                 return False
 
-        self._add_ca_to_request_bundle(secrets.get("chain"))
+        self._add_ca_to_request_bundle(secrets.get("chain"), cert_type)
 
         return True
 
-    def read_stored_ca(self, alias: str = CA_ALIAS) -> Optional[str]:
-        """Load stored CA cert."""
+    def read_stored_ca(self, cert_type: CertType = CertType.APP_ADMIN, old: bool = False) -> Optional[str]:
+        """Load stored CA cert.
+        
+        Args:
+            cert_type: The type of certificate to load.
+            old: Whether to load the old CA cert.
+        """
+        if cert_type == CertType.APP_ADMIN:
+            ca_alias = ADMIN_CA_ALIAS if not old else OLD_ADMIN_CA_ALIAS
+        elif cert_type == CertType.UNIT_TRANSPORT:
+            ca_alias = TRANSPORT_CA_ALIAS if not old else OLD_TRANSPORT_CA_ALIAS
+        elif cert_type == CertType.UNIT_HTTP:
+            ca_alias = HTTP_CA_ALIAS if not old else OLD_HTTP_CA_ALIAS
+        else:
+            logger.error(f"Invalid certificate type: {cert_type}")
+            return None
+
+        ca_trust_store = f"{self.certs_path}/{CA_TRUSTSTORE_NAME}"
+
         secrets = self.charm.secrets.get_object(Scope.APP, CertType.APP_ADMIN.val, peek=True)
 
-        ca_trust_store = f"{self.certs_path}/ca.p12"
         if not (exists(ca_trust_store) and secrets):
             return None
 
@@ -623,14 +678,23 @@ class OpenSearchTLS(Object):
         end_cert_marker = "-----END CERTIFICATE-----"
         certificates = stored_certs.split(end_cert_marker)
         for cert in certificates:
-            if f"friendlyName: {alias}" in cert:
+            if f"friendlyName: {ca_alias}" in cert:
                 return f"{start_cert_marker}{cert.split(start_cert_marker)[1]}{end_cert_marker}"
 
         return None
 
-    def remove_old_ca(self) -> None:
+    def remove_old_ca(self, cert_type: CertType = CertType.APP_ADMIN) -> None:
         """Remove old CA cert from trust store."""
-        ca_trust_store = f"{self.certs_path}/ca.p12"
+        if cert_type == CertType.APP_ADMIN:
+            alias = OLD_ADMIN_CA_ALIAS
+        elif cert_type == CertType.UNIT_TRANSPORT:
+            alias = OLD_TRANSPORT_CA_ALIAS
+        elif cert_type == CertType.UNIT_HTTP:
+            alias = OLD_HTTP_CA_ALIAS
+        else:
+            logger.error(f"Invalid certificate type: {cert_type}")
+            return
+        ca_trust_store = f"{self.certs_path}/{CA_TRUSTSTORE_NAME}"
 
         secrets = self.charm.secrets.get_object(Scope.APP, CertType.APP_ADMIN.val, peek=True)
         store_pwd = secrets.get("truststore-password")
@@ -641,43 +705,47 @@ class OpenSearchTLS(Object):
                 -list \
                 -keystore {ca_trust_store} \
                 -storepass {store_pwd} \
-                -alias {OLD_CA_ALIAS} \
+                -alias {alias} \
                 -storetype PKCS12"""
             )
         except OpenSearchCmdError as e:
             # This message means there was no "ca" alias or store before, if it happens ignore
-            if f"Alias <{OLD_CA_ALIAS}> does not exist" in e.out:
+            if f"Alias <{alias}> does not exist" in e.out:
                 return
 
-        old_ca_content = self.read_stored_ca(alias=OLD_CA_ALIAS)
+        old_ca_content = self.read_stored_ca(cert_type=cert_type, old=True)
 
         run_cmd(
             f"""{self.keytool} \
             -delete \
             -keystore {ca_trust_store} \
             -storepass {store_pwd} \
-            -alias {OLD_CA_ALIAS} \
+            -alias {alias} \
             -storetype PKCS12"""
         )
-        logger.info(f"Removed {OLD_CA_ALIAS} from truststore.")
+        logger.info(f"Removed {alias} from truststore.")
         # remove it from the request bundle
-        self._remove_ca_from_request_bundle(old_ca_content)
+        if old_ca_content:
+            self._remove_ca_from_request_bundle(old_ca_content, cert_type)
 
-    def update_request_ca_bundle(self) -> None:
+    def update_request_ca_bundle(self, cert_type: CertType) -> None:
         """Create a new chain.pem file for requests module"""
         logger.debug("Updating requests TLS CA bundle")
-        admin_secret = self.charm.secrets.get_object(Scope.APP, CertType.APP_ADMIN.val, peek=True)
+        if cert_type == CertType.APP_ADMIN:
+            secrets = self.charm.secrets.get_object(Scope.APP, CertType.APP_ADMIN.val, peek=True)
+        else:
+            secrets = self.charm.secrets.get_object(Scope.UNIT, cert_type, peek=True)
 
         # we store the pem format to make it easier for the python requests lib
         self.charm.opensearch.write_file(
-            f"{self.certs_path}/chain.pem",
-            admin_secret["chain"],
+            f"{self.certs_path}/{cert_type.val}-chain.pem",
+            secrets["chain"],
         )
 
-    def store_new_tls_resources(self, cert_type: CertType, secrets: Dict[str, Any]):
+    def store_new_tls_resources(self, cert_type: CertType, secrets: Dict[str, Any]) -> bool:
         """Add key and cert to keystore."""
-        if not self.ca_rotation_complete_in_cluster():
-            return
+        if not self.ca_rotation_complete_in_cluster(cert_type):
+            return False
 
         cert_name = cert_type.val
         store_path = f"{self.certs_path}/{cert_type}.p12"
@@ -690,7 +758,7 @@ class OpenSearchTLS(Object):
 
         if not secrets.get("key"):
             logging.error("TLS key not found, quitting.")
-            return
+            return False
 
         try:
             os.remove(store_path)
@@ -731,32 +799,44 @@ class OpenSearchTLS(Object):
             tmp_cert.close()
             logger.info(f"TLS certificate for {cert_name} stored.")
 
+        return True
+
     def all_tls_resources_stored(self, only_unit_resources: bool = False) -> bool:  # noqa: C901
         """Check if all TLS resources are stored on disk."""
         cert_types = [CertType.UNIT_TRANSPORT, CertType.UNIT_HTTP]
         if not only_unit_resources:
             cert_types.append(CertType.APP_ADMIN)
 
-        # compare issuer of the cert with the issuer of the CA
-        # if they don't match, certs are not up-to-date and need to be renewed after CA rotation
-        if not (current_ca := self.read_stored_ca()):
-            return False
-
-        # to make sure the content is processed correctly by openssl, temporary store it in a file
-        tmp_ca_file = tempfile.NamedTemporaryFile(mode="w+t", dir=self.charm.opensearch.paths.conf)
-        tmp_ca_file.write(current_ca)
-        tmp_ca_file.flush()
-        tmp_ca_file.seek(0)
-
-        try:
-            ca_issuer = run_cmd(f"openssl x509 -in {tmp_ca_file.name} -noout -issuer").out
-        except OpenSearchCmdError as e:
-            logger.error(f"Error reading the current truststore: {e}")
-            return False
-        finally:
-            tmp_ca_file.close()
-
         for cert_type in cert_types:
+            # compare issuer of the cert with the issuer of the CA
+            # if they don't match, certs are not up-to-date and need to be renewed after CA rotation
+            if not (current_ca := self.read_stored_ca(cert_type=cert_type)):
+                return False
+            
+            old_ca = self.read_stored_ca(cert_type=cert_type, old=True)
+            if old_ca:
+                tmp_old_ca_file = tempfile.NamedTemporaryFile(mode="w+t", dir=self.charm.opensearch.paths.conf)
+                tmp_old_ca_file.write(old_ca)
+                tmp_old_ca_file.flush()
+                tmp_old_ca_file.seek(0)
+
+            # to make sure the content is processed correctly by openssl, temporary store it in a file
+            tmp_ca_file = tempfile.NamedTemporaryFile(mode="w+t", dir=self.charm.opensearch.paths.conf)
+            tmp_ca_file.write(current_ca)
+            tmp_ca_file.flush()
+            tmp_ca_file.seek(0)
+
+            try:
+                old_ca_issuer = None
+                ca_issuer = run_cmd(f"openssl x509 -in {tmp_ca_file.name} -noout -issuer").out
+                if old_ca:
+                    old_ca_issuer = run_cmd(f"openssl x509 -in {tmp_old_ca_file.name} -noout -issuer").out
+            except OpenSearchCmdError as e:
+                logger.error(f"Error reading the current truststore: {e}")
+                return False
+            finally:
+                tmp_ca_file.close()
+
             if not exists(f"{self.certs_path}/{cert_type}.p12"):
                 return False
 
@@ -778,7 +858,7 @@ class OpenSearchTLS(Object):
                 logger.error(f"Error reading secret: {e}")
                 return False
 
-            if cert_issuer != ca_issuer:
+            if cert_issuer != ca_issuer and cert_issuer != old_ca_issuer:
                 return False
 
         return True
@@ -806,14 +886,18 @@ class OpenSearchTLS(Object):
         """Check if TLS is configured in all the units of the current cluster."""
         rel = self.model.get_relation(PeerRelationName)
         for unit in all_units(self.charm):
-            if rel.data[unit].get("tls_configured") != "True":
-                return False
+            for cert_type in [CertType.UNIT_HTTP, CertType.UNIT_TRANSPORT, CertType.APP_ADMIN]:
+                if rel.data[unit].get(f"{cert_type.val}_tls_configured") != "True":
+                    return False
         return True
 
     def store_admin_tls_secrets_if_applies(self) -> None:
         """Store admin TLS resources if available and mark unit as configured if correct."""
         # In the case of the first units before TLS is initialized,
         # or non-main orchestrator units having not received the secrets from the main yet
+        if self.charm.unit.is_leader():
+            return
+
         if not (
             current_secrets := self.charm.secrets.get_object(
                 Scope.APP, CertType.APP_ADMIN.val, peek=True
@@ -823,15 +907,18 @@ class OpenSearchTLS(Object):
 
         # in the case the cluster was bootstrapped with multiple units at the same time
         # and the certificates have not been generated yet
-        if not current_secrets.get("cert") or not current_secrets.get("chain"):
+        if not current_secrets.get("cert") or not current_secrets.get("chain") or not current_secrets.get("ca-cert"):
             return
 
         # Store the "Admin" certificate, key and CA on the disk of the new unit
         self.store_new_tls_resources(CertType.APP_ADMIN, current_secrets)
+        current_stored_ca = self.read_stored_ca(cert_type=CertType.APP_ADMIN, old=False)
+        if current_stored_ca != current_secrets.get("ca-cert"):
+            self.store_new_ca(current_secrets, CertType.APP_ADMIN)
 
         # Mark this unit as tls configured
         if self.is_fully_configured():
-            self.charm.peers_data.put(Scope.UNIT, "tls_configured", True)
+            self.charm.peers_data.put(Scope.UNIT, f"{CertType.APP_ADMIN.val}_tls_configured", True)
 
     def delete_stored_tls_resources(self):
         """Delete the TLS resources of the unit that are stored on disk."""
@@ -880,42 +967,52 @@ class OpenSearchTLS(Object):
             tmp_cert.close()
             tmp_key.close()
 
+    def _reset_ca_type_in_rotation_state(self) -> None:
+        """Reset the CA type in rotation state."""
+        self.charm.peers_data.delete(Scope.UNIT, CertType.APP_ADMIN.val)
+        self.charm.peers_data.delete(Scope.UNIT, CertType.UNIT_TRANSPORT.val)
+        self.charm.peers_data.delete(Scope.UNIT, CertType.UNIT_HTTP.val)
+        self.update_ca_rotation_flag_to_peer_cluster_relation(
+            flag=CertType.APP_ADMIN.val, operation="remove"
+        )
+        self.update_ca_rotation_flag_to_peer_cluster_relation(
+            flag=CertType.UNIT_TRANSPORT.val, operation="remove"
+        )
+        self.update_ca_rotation_flag_to_peer_cluster_relation(
+            flag=CertType.UNIT_HTTP.val, operation="remove"
+        )
+
     def reset_ca_rotation_state(self) -> None:
         """Handle internal flags during CA rotation routine."""
-        if not self.charm.peers_data.get(Scope.UNIT, "tls_ca_renewing", False):
-            # if the CA is not being renewed we don't have to do anything here
-            return
+        for cert_type in [CertType.UNIT_HTTP, CertType.UNIT_TRANSPORT, CertType.APP_ADMIN]:
+            if not self.charm.peers_data.get(Scope.UNIT, f"{cert_type.val}_tls_ca_renewing", False):
+                # if the CA is not being renewed we don't have to do anything here
+                return
 
-        # if this flag is set, the CA rotation routine is complete for this unit
-        if self.charm.peers_data.get(Scope.UNIT, "tls_ca_renewed", False):
-            self.charm.peers_data.delete(Scope.UNIT, "tls_ca_renewing")
-            self.charm.peers_data.delete(Scope.UNIT, "tls_ca_renewed")
-            self.update_ca_rotation_flag_to_peer_cluster_relation(
-                flag="tls_ca_renewing", operation="remove"
-            )
-            self.update_ca_rotation_flag_to_peer_cluster_relation(
-                flag="tls_ca_renewed", operation="remove"
-            )
-        else:
-            # this means only the CA rotation completed, still need to create certificates
-            self.charm.peers_data.put(Scope.UNIT, "tls_ca_renewed", True)
-            self.update_ca_rotation_flag_to_peer_cluster_relation(
-                flag="tls_ca_renewed", operation="add"
-            )
+            # if this flag is set, the CA rotation routine is complete for this unit
+            if self.charm.peers_data.get(Scope.UNIT, f"{cert_type.val}_tls_ca_renewed", False):
+                self.charm.peers_data.delete(Scope.UNIT, f"{cert_type.val}_tls_ca_renewing")
+                self.charm.peers_data.delete(Scope.UNIT, f"{cert_type.val}_tls_ca_renewed")
+                self._reset_ca_type_in_rotation_state()
+                self.update_ca_rotation_flag_to_peer_cluster_relation(
+                    flag=f"{cert_type.val}_tls_ca_renewing", operation="remove"
+                )
+                self.update_ca_rotation_flag_to_peer_cluster_relation(
+                    flag=f"{cert_type.val}_tls_ca_renewed", operation="remove"
+                )
+            else:
+                # this means only the CA rotation completed, still need to create certificates
+                self.charm.peers_data.put(Scope.UNIT, f"{cert_type.val}_tls_ca_renewed", True)
+                self.update_ca_rotation_flag_to_peer_cluster_relation(
+                    flag=f"{cert_type.val}_tls_ca_renewed", operation="add"
+                )
 
-    def ca_rotation_complete_in_cluster(self) -> bool:
-        """Check whether the CA rotation completed in all units."""
+    def ca_rotation_complete_in_cluster(self, cert_type: CertType) -> bool:
+        """Check whether the CA rotation completed in all units.
+        
+        If cert-type is not provided checks for any of the CAs."""
         rotation_happening = False
         rotation_complete = True
-        # check current unit
-        if self.charm.peers_data.get(Scope.UNIT, "tls_ca_renewing", False):
-            rotation_happening = True
-        if not self.charm.peers_data.get(Scope.UNIT, "tls_ca_renewed", False):
-            logger.debug(
-                f"TLS CA rotation ongoing in unit: {self.charm.unit.name}, will not update tls certificates."
-            )
-            rotation_complete = False
-
         for relation_type in [
             PeerRelationName,
             PeerClusterRelationName,
@@ -923,10 +1020,10 @@ class OpenSearchTLS(Object):
         ]:
             for relation in self.model.relations[relation_type]:
                 for unit in relation.units:
-                    if relation.data[unit].get("tls_ca_renewing"):
+                    if relation.data[unit].get(f"{cert_type.val}_tls_ca_renewing") and not relation.data[unit].get(f"{cert_type.val}_tls_ca_renewed"):
                         rotation_happening = True
 
-                    if not relation.data[unit].get("tls_ca_renewed"):
+                    if not relation.data[unit].get(f"{cert_type.val}_tls_ca_renewed") and not relation.data[unit].get(f"{cert_type.val}_tls_configured", False):
                         logger.debug(
                             f"TLS CA rotation ongoing in unit {unit}, will not update tls certificates."
                         )
@@ -935,21 +1032,23 @@ class OpenSearchTLS(Object):
         # if no unit is renewing the CA, or all of them renewed it, the rotation is complete
         return not rotation_happening or rotation_complete
 
-    def ca_and_certs_rotation_complete_in_cluster(self) -> bool:
-        """Check whether the CA rotation completed in all units."""
+    def ca_and_certs_rotation_complete_in_cluster(self, cert_type: CertType = None) -> bool:
+        """Check whether the CA rotation completed in all units.
+
+        If cert-type is not provided checks for any of the CAs."""
         rotation_complete = True
 
-        # the current unit is not in the relation.units list
-        if (
-            self.charm.peers_data.get(Scope.UNIT, "tls_ca_renewing")
-            or self.charm.peers_data.get(
-                Scope.UNIT,
-                "tls_ca_renewed",
-            )
-            or self.charm.peers_data.get(Scope.UNIT, "tls_configured") is not True
-        ):
-            logger.debug("TLS CA rotation ongoing on this unit.")
-            return False
+            # the current unit is not in the relation.units list
+            # if (
+            #     self.charm.peers_data.get(Scope.UNIT, "tls_ca_renewing")
+            #     or self.charm.peers_data.get(
+            #         Scope.UNIT,
+            #         "tls_ca_renewed",
+            #     )
+            #     or self.charm.peers_data.get(Scope.UNIT, "tls_configured") is not True
+            # ):
+            #     logger.debug("TLS CA rotation ongoing on this unit.")
+            #     return False
 
         for relation_type in [
             PeerRelationName,
@@ -960,15 +1059,15 @@ class OpenSearchTLS(Object):
                 logger.debug(f"Checking relation {relation}: units: {relation.units}")
                 for unit in relation.units:
                     if (
-                        "tls_ca_renewing" in relation.data[unit]
-                        or "tls_ca_renewed" in relation.data[unit]
-                        or relation.data[unit].get("tls_configured") != "True"
+                        f"{cert_type.val}_tls_ca_renewing" in relation.data[unit]
+                        or f"{cert_type.val}_tls_ca_renewed" in relation.data[unit]
+                        or relation.data[unit].get(f"{cert_type.val}_tls_configured") != "True"
                     ):
                         logger.debug(
                             f"TLS CA rotation not complete for unit {unit}: {relation} \
-                                | tls_ca_renewing: {relation.data[unit].get('tls_ca_renewing')} \
-                                | tls_ca_renewed: {relation.data[unit].get('tls_ca_renewed')} \
-                                | tls_configured: {relation.data[unit].get('tls_configured')}"
+                                | {cert_type.val} tls_ca_renewing: {relation.data[unit].get(f'{cert_type.val}_tls_ca_renewing')} \
+                                | {cert_type.val} tls_ca_renewed: {relation.data[unit].get(f'{cert_type.val}_tls_ca_renewed')} \
+                                | {cert_type.val} tls_configured: {relation.data[unit].get(f'{cert_type.val}_tls_configured')}"
                         )
                         rotation_complete = False
                         break
@@ -983,15 +1082,18 @@ class OpenSearchTLS(Object):
                 elif operation == "remove":
                     relation.data[self.charm.unit].pop(flag, None)
 
-    def on_ca_certs_rotation_complete(self) -> None:
+    def on_ca_certs_rotation_complete(self, cert_type: CertType) -> None:
         """Handle the completion of CA rotation."""
         logger.info("CA rotation completed. Deleting old CA and updating request bundle.")
-        self.remove_old_ca()
-        self.update_request_ca_bundle()
+        try:
+            self.remove_old_ca(cert_type)
+        except Exception as e:
+            logger.error(f"Error removing old CA: {e}")
+        self.update_request_ca_bundle(cert_type)
 
-    def _add_ca_to_request_bundle(self, ca_cert: str) -> None:
+    def _add_ca_to_request_bundle(self, ca_cert: str, cert_type: CertType) -> None:
         """Add the CA cert to the request bundle for the requests module."""
-        bundle_path = Path(self.certs_path) / "chain.pem"
+        bundle_path = Path(self.certs_path) / f"{cert_type.val}-chain.pem"
         if not bundle_path.exists():
             return
 
@@ -999,11 +1101,18 @@ class OpenSearchTLS(Object):
         if ca_cert not in bundle_content:
             bundle_path.write_text(f"{bundle_content}\n{ca_cert}")
 
-    def _remove_ca_from_request_bundle(self, ca_cert: str) -> None:
+    def _remove_ca_from_request_bundle(self, ca_cert: str, cert_type: CertType) -> None:
         """Remove the CA cert from the request bundle for the requests module."""
-        bundle_path = Path(self.certs_path) / "chain.pem"
+        bundle_path = Path(self.certs_path) / f"{cert_type.val}-chain.pem"
         if not bundle_path.exists():
             return
 
         bundle_content = bundle_path.read_text()
         bundle_path.write_text(bundle_content.replace(ca_cert, ""))
+
+    def old_ca_stored(self) -> bool:
+        """Check if the old CA is stored."""
+        for cert_type in [CertType.APP_ADMIN, CertType.UNIT_HTTP, CertType.UNIT_TRANSPORT]:
+            if self.read_stored_ca(cert_type=cert_type, old=True) is not None:
+                return True
+        return False

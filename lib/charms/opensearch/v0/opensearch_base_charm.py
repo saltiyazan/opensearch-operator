@@ -95,8 +95,14 @@ from charms.opensearch.v0.opensearch_users import (
     OpenSearchUserManager,
     OpenSearchUserMgmtError,
 )
-from charms.tls_certificates_interface.v3.tls_certificates import (
+from charms.tls_certificates_interface.v4.tls_certificates import (
     CertificateAvailableEvent,
+)
+from charms.opensearch.v0.constants_tls import (
+    ADMIN_TLS_RELATION,
+    CLIENT_TLS_RELATION,
+    TRANSPORT_TLS_RELATION,
+    CertType,
 )
 from ops.charm import (
     ActionEvent,
@@ -374,7 +380,11 @@ class OpenSearchBaseCharm(CharmBase, abc.ABC):
             return
 
         if not self.is_admin_user_configured() or not self.tls.is_fully_configured():
-            if not self.model.get_relation("certificates"):
+            if (
+                not self.model.relations.get(ADMIN_TLS_RELATION)
+                or not self.model.relations.get(TRANSPORT_TLS_RELATION)
+                or not self.model.relations.get(CLIENT_TLS_RELATION)
+            ):
                 status = BlockedStatus(TLSRelationMissing)
             else:
                 status = MaintenanceStatus(
@@ -667,12 +677,13 @@ class OpenSearchBaseCharm(CharmBase, abc.ABC):
 
         # If the unit reloads its certs but the other units are not ready yet
         # we need to wait for them all to be ready before deleting the old CA
-        if (
-            self.tls.read_stored_ca(OLD_CA_ALIAS)
-            and self.tls.ca_and_certs_rotation_complete_in_cluster()
-        ):
-            logger.debug("update_status: Detected CA rotation complete in cluster")
-            self.tls.on_ca_certs_rotation_complete()
+        for cert_type in [CertType.UNIT_HTTP, CertType.UNIT_TRANSPORT, CertType.APP_ADMIN]:
+            if (
+                self.tls.old_ca_stored()
+                and self.tls.ca_and_certs_rotation_complete_in_cluster(cert_type)
+            ):
+                logger.debug("update_status: Detected CA rotation complete in cluster")
+                self.tls.on_ca_certs_rotation_complete(cert_type)
         # If relation not broken - leave
         if self.model.get_relation("certificates") is not None:
             return
@@ -696,7 +707,6 @@ class OpenSearchBaseCharm(CharmBase, abc.ABC):
         if self.opensearch_config.update_host_if_needed():
             self.status.set(MaintenanceStatus(TLSNewCertsRequested))
             self.tls.delete_stored_tls_resources()
-            self.tls.request_new_unit_certificates()
 
             # since when an IP change happens, "_on_peer_relation_joined" won't be called,
             # we need to alert the leader that it must recompute the node roles for any unit whose
@@ -898,11 +908,11 @@ class OpenSearchBaseCharm(CharmBase, abc.ABC):
                     # if all certs are stored and CA rotation is complete in the cluster
                     # we delete the old ca and update the chain to only include the new one
                     if (
-                        self.tls.read_stored_ca(OLD_CA_ALIAS)
-                        and self.tls.ca_and_certs_rotation_complete_in_cluster()
+                        self.tls.old_ca_stored()
+                        and self.tls.ca_and_certs_rotation_complete_in_cluster(cert_type)
                     ):
                         logger.info("on_tls_conf_set: Detected CA rotation complete in cluster")
-                        self.tls.on_ca_certs_rotation_complete()
+                        self.tls.on_ca_certs_rotation_complete(cert_type)
             else:
                 event.defer()
                 return
@@ -941,12 +951,13 @@ class OpenSearchBaseCharm(CharmBase, abc.ABC):
         """Check if TLS is configured in all the units of the current cluster."""
         rel = self.model.get_relation(PeerRelationName)
         for unit in all_units(self):
-            if (
-                rel.data[unit].get("tls_configured") != "True"
-                or "tls_ca_renewing" in rel.data[unit]
-                or "tls_ca_renewed" in rel.data[unit]
-            ):
-                return False
+            for cert_type in [CertType.UNIT_HTTP, CertType.UNIT_TRANSPORT, CertType.APP_ADMIN]:
+                if (
+                    rel.data[unit].get(f"{cert_type.val}_tls_configured") != "True"
+                    or f"{cert_type.val}_tls_ca_renewing" in rel.data[unit]
+                    or f"{cert_type.val}_tls_ca_renewed" in rel.data[unit]
+                ):
+                    return False
         return True
 
     def is_admin_user_configured(self) -> bool:
@@ -981,7 +992,11 @@ class OpenSearchBaseCharm(CharmBase, abc.ABC):
 
         # we check if we need to generate the admin certificate if missing
         if not self.tls.all_tls_resources_stored():
-            if not self.model.get_relation("certificates"):
+            if (
+                not self.model.relations.get(ADMIN_TLS_RELATION)
+                or not self.model.relations.get(TRANSPORT_TLS_RELATION)
+                or not self.model.relations.get(CLIENT_TLS_RELATION)
+            ):
                 event.defer()
                 return
 
@@ -1235,24 +1250,27 @@ class OpenSearchBaseCharm(CharmBase, abc.ABC):
             self.status.clear(TLSNotFullyConfigured)
 
         # request new certificates after rotating the CA
-        if self.peers_data.get(Scope.UNIT, "tls_ca_renewing", False) and self.peers_data.get(
-            Scope.UNIT, "tls_ca_renewed", False
-        ):
-            self.status.set(MaintenanceStatus(TLSNotFullyConfigured))
-            self.tls.request_new_unit_certificates()
-            if self.unit.is_leader():
-                self.tls.request_new_admin_certificate()
-            else:
-                self.tls.store_admin_tls_secrets_if_applies()
+        for cert_type in [CertType.UNIT_HTTP, CertType.UNIT_TRANSPORT, CertType.APP_ADMIN]:
+            if self.peers_data.get(Scope.UNIT, f"{cert_type.val}_tls_ca_renewing", False) and self.peers_data.get(
+                Scope.UNIT, f"{cert_type.val}_tls_ca_renewed", False
+            ):
+                self.status.set(MaintenanceStatus(TLSNotFullyConfigured))
+                self.tls.request_new_unit_certificates(cert_type=cert_type)
+                if cert_type == CertType.APP_ADMIN:
+                    if self.unit.is_leader():
+                        self.tls.request_new_admin_certificate()
+                    else:
+                        self.tls.store_admin_tls_secrets_if_applies()
         # If the reload through API failed, we restart the service
         # We remove the old CA and update the chain to only include the new one
         # if all certs are stored and CA rotation is complete in the cluster
-        if (
-            self.tls.read_stored_ca(OLD_CA_ALIAS)
-            and self.tls.ca_and_certs_rotation_complete_in_cluster()
-        ):
-            logger.info("post_start_init: Detected CA rotation complete in cluster")
-            self.tls.on_ca_certs_rotation_complete()
+        for cert_type in [CertType.UNIT_HTTP, CertType.UNIT_TRANSPORT, CertType.APP_ADMIN]:
+            if (
+                self.tls.old_ca_stored()
+                and self.tls.ca_and_certs_rotation_complete_in_cluster(cert_type)
+            ):
+                logger.info("post_start_init: Detected CA rotation complete in cluster")
+                self.tls.on_ca_certs_rotation_complete(cert_type)
 
     def _stop_opensearch(self, *, restart: bool = False) -> None:
         """Stop OpenSearch if possible."""

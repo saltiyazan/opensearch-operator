@@ -276,7 +276,7 @@ class OpenSearchDistribution(ABC):
                     request_kwargs = {
                         "method": method.upper(),
                         "url": url,
-                        "verify": f"{self.paths.certs}/chain.pem",
+                        "verify": f"{self.paths.certs}/unit-http-chain.pem",
                         "headers": {
                             "Accept": "application/json",
                             "Content-Type": "application/json",
