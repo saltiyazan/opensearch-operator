@@ -252,19 +252,6 @@ class OpenSearchDistribution(ABC):
             ValueError if method or endpoint are missing
             OpenSearchHttpError if hosts are unreachable
         """
-        # logger.debug(
-        #     "Making request with args: method=%s, endpoint=%s, host=%s, alt_hosts=%s, "
-        #     "check_hosts_reach=%s, resp_status_code=%s, retries=%s, timeout=%s, cert_files=%s",
-        #     method,
-        #     endpoint,
-        #     host,
-        #     alt_hosts,
-        #     check_hosts_reach,
-        #     resp_status_code,
-        #     retries,
-        #     timeout,
-        #     cert_files,
-        # )
 
         def call(urls: List[str]) -> requests.Response:
             """Performs an HTTP request."""
@@ -289,7 +276,7 @@ class OpenSearchDistribution(ABC):
                     request_kwargs = {
                         "method": method.upper(),
                         "url": url,
-                        "verify": f"{self.paths.certs}/http-chain.pem",
+                        "verify": f"{self.paths.certs}/unit-http-chain.pem",
                         "headers": {
                             "Accept": "application/json",
                             "Content-Type": "application/json",
@@ -300,43 +287,6 @@ class OpenSearchDistribution(ABC):
                         request_kwargs["data"] = (
                             json.dumps(payload) if not isinstance(payload, str) else payload
                         )
-
-                    # Debug SSL verification
-                    verify_path = request_kwargs["verify"]
-                    #logger.debug("SSL verify path: %s", verify_path)
-                    # if os.path.exists(verify_path):
-                    #     logger.debug("Chain.pem exists at: %s", verify_path)
-                    #     try:
-                    #         import ssl
-                            
-                    #         # Create an SSL context and try to load the certificate
-                    #         context = ssl.create_default_context()
-                    #         try:
-                    #             context.load_verify_locations(verify_path)
-                    #             logger.debug("Successfully loaded certificate into SSL context")
-                    #         except Exception as e:
-                    #             logger.error("Failed to load certificate into SSL context: %s", str(e))
-                                
-                    #         # Try to read the certificate file
-                    #         with open(verify_path, 'r') as f:
-                    #             content = f.read()
-                    #             logger.debug("Certificate file content (first 100 chars): %s", content[:100])
-                                
-                    #     except Exception as e:
-                    #         logger.error("Failed to analyze certificates: %s", str(e))
-                    # else:
-                    #     logger.error("Chain.pem not found at: %s", verify_path)
-
-                    # logger.debug(
-                    #     "Making HTTP request: %s %s\nHeaders: %s\nVerify: %s\nCert: %s\nAuth: %s",
-                    #     method.upper(),
-                    #     url,
-                    #     request_kwargs["headers"],
-                    #     request_kwargs["verify"],
-                    #     s.cert if hasattr(s, 'cert') else None,
-                    #     s.auth if hasattr(s, 'auth') else None,
-                    # )
-
                     try:
                         response = s.request(**request_kwargs)
                     except Exception as e:
@@ -357,13 +307,6 @@ class OpenSearchDistribution(ABC):
                                 response_code=ex.response.status_code,
                             )
                         raise
-
-                    # logger.debug(
-                    #     "Response: Status=%s\nHeaders: %s\nBody: %s",
-                    #     response.status_code,
-                    #     dict(response.headers),
-                    #     response.text
-                    # )
 
                     return response
 

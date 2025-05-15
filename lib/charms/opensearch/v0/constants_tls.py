@@ -19,6 +19,16 @@ ADMIN_TLS_RELATION = "admin-certificates"
 TRANSPORT_TLS_RELATION = "transport-certificates"
 CLIENT_TLS_RELATION = "client-certificates"
 
+ADMIN_CA_ALIAS = "ca"
+TRANSPORT_CA_ALIAS = "transport-ca"
+HTTP_CA_ALIAS = "http-ca"
+
+OLD_ADMIN_CA_ALIAS = f"old-{ADMIN_CA_ALIAS}"
+OLD_TRANSPORT_CA_ALIAS = f"old-{TRANSPORT_CA_ALIAS}"
+OLD_HTTP_CA_ALIAS = f"old-{HTTP_CA_ALIAS}"
+
+CA_TRUSTSTORE_NAME = "ca.p12"
+
 
 class CertType(BaseStrEnum):
     """Certificate types."""

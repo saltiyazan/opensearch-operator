@@ -1,8 +1,8 @@
 # Copyright 2023 Canonical Ltd.
 # See LICENSE file for licensing details.
 
-regenerate-tls-private-key:
-  description: Set the private keys, which will be used for certificate signing requests (CSR). Run for each unit separately or on-leader only depending on the type.
+set-tls-private-key:
+  description: (Deprecated) Set the private keys, which will be used for certificate signing requests (CSR). Run for each unit separately or on-leader only depending on the type.
   params:
     category:
       type: string
@@ -11,6 +11,12 @@ regenerate-tls-private-key:
         - "unit-transport"
         - "unit-http"
       description: (Required) Type of private key to be set. "app-admin" must only be set on the leader.
+    key:
+      type: string
+      description: (Deprecated) The content of this field is ignored.
+    password:
+      type: string
+      description: (Deprecated) The content of this field is ignored.
   required:
     - category
 
