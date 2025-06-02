@@ -45,6 +45,7 @@ from charms.tls_certificates_interface.v3.tls_certificates import (
     CertificateExpiringEvent,
     CertificateInvalidatedEvent,
     TLSCertificatesRequiresV3,
+    chain_has_valid_order,
     generate_csr,
     generate_private_key,
 )
@@ -225,7 +226,11 @@ class OpenSearchTLS(Object):
             return
 
         old_cert = secrets.get("cert", None)
-        ca_chain = "\n".join(event.chain[::-1])
+        ca_chain = (
+            "\n".join(event.chain)
+            if chain_has_valid_order(event.chain)
+            else "\n".join(event.chain[::-1])
+        )
 
         current_secret_obj = self.charm.secrets.get_object(scope, cert_type.val, peek=True) or {}
         secret = {
