@@ -15,7 +15,9 @@ The following guides cover key processes and common tasks for managing and using
 * [Scale horizontally]
 * [Integrate with an application]
 * [Perform load testing]
+* [Optimize Cluster Performance]
 * [Recover from attached storage]
+* [Access using Oauth](https://discourse.charmhub.io/t/how-to-access-opensearch-using-oauth/18870/1)
 
 ## Backup and restore
 * [Configure S3]
@@ -51,6 +53,7 @@ The following guides cover key processes and common tasks for managing and using
 [Perform a minor rollback]: /t/14142
 
 [Perform load testing]: /t/13987
+[Optimize Cluster Performance]: /t/19082
 [Recover from attached storage]: /t/15616
 
 [Monitoring (COS)]: /t/16563
